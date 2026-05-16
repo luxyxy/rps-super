@@ -2,13 +2,13 @@
 // Firebase設定（自分のプロジェクト情報に書き換えてください）
 // ============================================================
 const firebaseConfig = {
-    apiKey: "YOUR_API_KEY",
-    authDomain: "YOUR_AUTH_DOMAIN",
-    databaseURL: "YOUR_DATABASE_URL",
-    projectId: "YOUR_PROJECT_ID",
-    storageBucket: "YOUR_STORAGE_BUCKET",
-    messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
-    appId: "YOUR_APP_ID"
+    apiKey: "AIzaSyDkDHmZWYOq7lJ7onT5l6fcIH9Vr14lV8E",
+    authDomain: "rps-super.firebaseapp.com",
+    databaseURL: "https://rps-super-default-rtdb.asia-southeast1.firebasedatabase.app",
+    projectId: "rps-super",
+    storageBucket: "rps-super.firebasestorage.app",
+    messagingSenderId: "573274865822",
+    appId: "1:573274865822:web:143183f8d8a0c9c3e13b8f"
 };
 
 firebase.initializeApp(firebaseConfig);
