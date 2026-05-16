@@ -3,15 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-    <title>Super RPS</title>
+    <title>スーパー RPS</title>
     <link rel="icon" type="image/x-icon" href="favicon.ico">
     <style>
         :root {
             --green:  #00ff00;
             --cyan:   #00ffff;
             --yellow: #ffff00;
-            --red:    #ff4444;
-            --dim:    #888888;
+            --dim:    #666666;
             --border: #444444;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -23,9 +22,7 @@
             min-height: 100vh;
         }
 
-        /* ================================================
-           セットアップ画面
-        ================================================ */
+        /* ========== セットアップ画面 ========== */
         #setup-screen {
             display: flex;
             flex-direction: column;
@@ -35,7 +32,7 @@
             padding: 20px;
         }
         #setup-screen h1 {
-            font-size: clamp(32px, 8vw, 64px);
+            font-size: clamp(28px, 8vw, 60px);
             color: var(--green);
             text-shadow: 3px 3px #005500;
             margin-bottom: 40px;
@@ -54,7 +51,7 @@
         #setup-join p {
             color: var(--dim);
             font-size: 13px;
-            line-height: 1.6;
+            line-height: 1.7;
             text-align: center;
         }
         input[type="text"] {
@@ -68,105 +65,150 @@
             width: 100%;
             letter-spacing: 10px;
         }
+        #btn-join {
+            width: 100%;
+            padding: 14px;
+            font-size: 18px;
+            background: #000;
+            color: #fff;
+            border: 2px solid #fff;
+            font-family: inherit;
+            cursor: pointer;
+            letter-spacing: 3px;
+        }
+        #btn-join:hover { background: #fff; color: #000; }
+        #btn-join:disabled { opacity: 0.35; cursor: not-allowed; }
 
-        /* ================================================
-           ゲーム画面
-        ================================================ */
+        /* ========== ゲーム画面 ========== */
         #game-screen {
             display: none;
             flex-direction: column;
             align-items: center;
-            padding: 16px 12px 32px;
+            padding: 14px 10px 32px;
             min-height: 100vh;
         }
         #game-screen h1 {
-            font-size: clamp(24px, 6vw, 48px);
+            font-size: clamp(22px, 6vw, 44px);
             color: var(--green);
             text-shadow: 2px 2px #005500;
-            margin-bottom: 6px;
+            margin-bottom: 4px;
             letter-spacing: 4px;
         }
         .room-info {
-            font-size: 14px;
+            font-size: 12px;
             color: var(--cyan);
-            margin-bottom: 16px;
+            margin-bottom: 12px;
             letter-spacing: 2px;
         }
 
-        /* ── プレイヤーエリア（顔 + HP） ── */
+        /* ── プレイヤーエリア ── */
         .players-row {
             display: flex;
-            gap: 10px;
+            gap: 8px;
             width: 100%;
-            max-width: 700px;
-            margin-bottom: 14px;
+            max-width: 680px;
+            margin-bottom: 12px;
         }
         .player-box {
             flex: 1;
             background: #0a0a0a;
             border: 2px solid var(--border);
-            padding: 10px 8px;
+            padding: 8px 6px 10px;
             display: flex;
             flex-direction: column;
             align-items: center;
         }
         .player-name {
-            font-size: clamp(11px, 3vw, 14px);
+            font-size: clamp(10px, 2.8vw, 13px);
             color: var(--yellow);
-            margin-bottom: 8px;
+            margin-bottom: 6px;
             letter-spacing: 1px;
         }
 
-        /* 顔スプライト表示エリア */
+        /* 顔 canvas */
         .face-wrap {
-            position: relative;
-            /* 表示サイズ：274×320 を 0.55 倍で 150×176 */
-            width:  150px;
+            width: 150px;
             height: 176px;
-            border: 3px solid #555;
+            border: 2px solid #555;
             background: #111;
             overflow: hidden;
-            image-rendering: pixelated;
+            flex-shrink: 0;
         }
-        /* スマホでやや縮小 */
-        @media (max-width: 400px) {
-            .face-wrap { width: 120px; height: 140px; }
-        }
-        .face-wrap canvas {
-            position: absolute;
-            top: 0; left: 0;
-            image-rendering: pixelated;
+        .face-wrap canvas { display: block; image-rendering: pixelated; }
+        @media (max-width: 380px) {
+            .face-wrap { width: 110px; height: 129px; }
         }
 
-        .hp-bar {
+        /* HP ハート */
+        .hp-row {
             margin-top: 8px;
-            font-size: clamp(12px, 3.5vw, 16px);
-            color: var(--red);
-            letter-spacing: 2px;
-            min-height: 20px;
-            text-align: center;
+            display: flex;
+            gap: 2px;
+            align-items: center;
+            justify-content: center;
+            min-height: 30px;
         }
-        .hp-bar.waiting { color: var(--dim); font-size: 12px; }
+        .hp-row img {
+            width: 28px;
+            height: 28px;
+            image-rendering: pixelated;
+        }
+        .hp-waiting {
+            color: var(--dim);
+            font-size: 11px;
+        }
 
         /* ── バトルフィールド ── */
         #battle-wrap {
             width: 100%;
-            max-width: 700px;
-            border: 3px solid #fff;
-            background: #000033;
-            margin-bottom: 14px;
-            /* 顔エリアより小さく */
-            min-height: 130px;
+            max-width: 680px;
+            border: 2px solid #555;
+            background: #000022;
+            margin-bottom: 12px;
+            min-height: 120px;
             display: flex;
             align-items: center;
             justify-content: center;
-            padding: 12px 16px;
+            padding: 10px 12px;
         }
-        #battle-text {
-            font-size: clamp(13px, 3.5vw, 17px);
-            line-height: 2;
-            text-align: center;
-            width: 100%;
+        #battle-text { width: 100%; text-align: center; }
+
+        .hand-row {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            margin-bottom: 6px;
+        }
+        .hand-cell {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+        }
+        .hand-cell span { font-size: 11px; color: var(--dim); }
+        .hand-img {
+            width: 72px;
+            height: 72px;
+            object-fit: contain;
+            image-rendering: pixelated;
+        }
+        @media (max-width: 380px) { .hand-img { width: 52px; height: 52px; } }
+        .hand-placeholder {
+            width: 72px; height: 72px;
+            border: 2px solid #333;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #444; font-size: 22px;
+        }
+        @media (max-width: 380px) { .hand-placeholder { width: 52px; height: 52px; } }
+        .vs-label { font-size: clamp(13px, 3.5vw, 18px); color: #555; font-weight: bold; }
+        .result-text {
+            font-size: clamp(13px, 3.8vw, 17px);
+            color: var(--yellow);
+            letter-spacing: 2px;
+            margin-top: 4px;
         }
 
         /* ── じゃんけんボタン ── */
@@ -174,75 +216,90 @@
             display: flex;
             gap: 10px;
             width: 100%;
-            max-width: 700px;
+            max-width: 680px;
             justify-content: center;
         }
-        .controls button {
+        .btn-hand {
             flex: 1;
-            max-width: 160px;
-            padding: 14px 4px;
-            font-size: clamp(14px, 4vw, 18px);
-        }
-
-        /* ── 共通ボタン ── */
-        button {
+            max-width: 180px;
             background: #000;
-            color: #fff;
-            border: 2px solid #fff;
-            font-family: inherit;
+            border: 2px solid #555;
+            padding: 8px 4px 6px;
             cursor: pointer;
-            transition: background 0.1s, color 0.1s;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+            transition: border-color 0.1s, background 0.1s;
         }
-        button:hover:not(:disabled) { background: #fff; color: #000; }
-        button:disabled { opacity: 0.35; cursor: not-allowed; }
+        .btn-hand:hover:not(:disabled) { border-color: #fff; background: #111; }
+        .btn-hand:disabled { opacity: 0.35; cursor: not-allowed; }
+        .btn-hand img {
+            width: 64px; height: 64px;
+            object-fit: contain;
+            image-rendering: pixelated;
+        }
+        @media (max-width: 380px) { .btn-hand img { width: 46px; height: 46px; } }
+        .btn-hand span { font-size: 11px; color: #aaa; font-family: inherit; letter-spacing: 1px; }
     </style>
 </head>
 <body>
 
 <!-- セットアップ画面 -->
 <div id="setup-screen">
-    <h1>Super RPS</h1>
+    <h1>スーパー RPS</h1>
     <div id="setup-join">
         <p>ROOM IDを入力してENTER<br>IDが存在しない場合は新規作成</p>
         <input type="text" id="input-room-id" placeholder="0000" maxlength="4" inputmode="numeric">
-        <button id="btn-join" style="width:100%;padding:14px;font-size:18px;">ENTER</button>
+        <button id="btn-join">ENTER</button>
     </div>
 </div>
 
 <!-- ゲーム画面 -->
 <div id="game-screen">
-    <h1>Super RPS</h1>
-    <div class="room-info">ROOM: <span id="display-room-id">----</span> &nbsp;|&nbsp; YOU: <span id="display-role">-</span></div>
+    <h1>スーパー RPS</h1>
+    <div class="room-info">
+        ROOM: <span id="display-room-id">----</span>
+        &nbsp;|&nbsp;
+        YOU: <span id="display-role">-</span>
+    </div>
 
     <div class="players-row">
         <!-- P1 -->
         <div class="player-box">
             <div class="player-name">PLAYER 1</div>
-            <div class="face-wrap">
-                <canvas id="face-canvas-p1"></canvas>
-            </div>
-            <div id="p1-hp" class="hp-bar">HP: [   ]</div>
+            <div class="face-wrap"><canvas id="face-canvas-p1"></canvas></div>
+            <div id="p1-hp-row" class="hp-row"><span class="hp-waiting">---</span></div>
         </div>
         <!-- P2 -->
         <div class="player-box">
             <div class="player-name">PLAYER 2</div>
-            <div class="face-wrap">
-                <canvas id="face-canvas-p2"></canvas>
-            </div>
-            <div id="p2-hp" class="hp-bar waiting">WAITING...</div>
+            <div class="face-wrap"><canvas id="face-canvas-p2"></canvas></div>
+            <div id="p2-hp-row" class="hp-row"><span class="hp-waiting">WAITING...</span></div>
         </div>
     </div>
 
     <!-- バトルフィールド -->
     <div id="battle-wrap">
-        <div id="battle-text" style="color:#00ffff;">相手の参加を待っています...</div>
+        <div id="battle-text">
+            <span style="color:#00ffff;">相手の参加を待っています...</span>
+        </div>
     </div>
 
     <!-- じゃんけんボタン -->
     <div class="controls">
-        <button id="btn-rock">GU</button>
-        <button id="btn-paper">PA</button>
-        <button id="btn-scissors">CHOKI</button>
+        <button class="btn-hand" id="btn-rock">
+            <img src="gu.png" alt="GU">
+            <span>GU</span>
+        </button>
+        <button class="btn-hand" id="btn-paper">
+            <img src="pa.png" alt="PA">
+            <span>PA</span>
+        </button>
+        <button class="btn-hand" id="btn-scissors">
+            <img src="choki.png" alt="CHOKI">
+            <span>CHOKI</span>
+        </button>
     </div>
 </div>
 
