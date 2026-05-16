@@ -19,6 +19,13 @@ let gameState = null;
 const SPRITE_WIDTH = 120;
 const SPRITE_HEIGHT = 120;
 
+// スプライトシートの行マッピング（HP 3→行0, HP 2→行1, HP 1→行2）
+function getSpriteRow(hp) {
+    if (hp >= 3) return 0;
+    if (hp === 2) return 1;
+    return 2; // hp <= 1
+}
+
 const setupScreen = document.getElementById("setup-screen");
 const gameScreen = document.getElementById("game-screen");
 const displayRoomId = document.getElementById("display-room-id");
@@ -32,54 +39,54 @@ const p2HpDisplay = document.getElementById("p2-hp");
 const canvas = document.getElementById("gameCanvas");
 const ctx = canvas.getContext("2d");
 
-// イベントリスナー
-document.getElementById("btn-create").addEventListener("click", createRoom);
+// イベントリスナー（「作成」ボタンは削除済み）
 document.getElementById("btn-join").addEventListener("click", joinRoom);
 
-function generateRoomId() {
-    return Math.floor(1000 + Math.random() * 9000).toString();
-}
-
-function createRoom() {
-    const roomId = generateRoomId();
-    roomRef = database.ref("rooms/" + roomId);
-    myRole = "player1";
-
-    const myCharId = Math.floor(Math.random() * 4); // 0〜3のキャラID
-
-    const initialData = {
-        player1: { hp: 3, hand: "", connected: true, charId: myCharId },
-        player2: { hp: 3, hand: "", connected: false, charId: null },
-        roundStatus: "waiting"
-    };
-
-    roomRef.set(initialData).then(() => {
-        enterGameScreen(roomId);
-        initGame();
-    });
-}
+// Enterキーでも参戦できるように
+inputRoomId.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") joinRoom();
+});
 
 function joinRoom() {
     const roomId = inputRoomId.value.trim();
+
     if (roomId.length !== 4) {
         alert("4桁のルームIDを入力してください。");
         return;
     }
 
+    // 入力を無効化して二重送信を防ぐ
+    inputRoomId.disabled = true;
+    document.getElementById("btn-join").disabled = true;
+
     roomRef = database.ref("rooms/" + roomId);
-    myRole = "player2";
 
     roomRef.once("value").then((snapshot) => {
         const roomData = snapshot.val();
+
         if (!roomData) {
             alert("ルームが見つかりません。");
-            return;
-        }
-        if (roomData.player2 && roomData.player2.connected) {
-            alert("このルームは満員です。");
+            resetJoinUI();
             return;
         }
 
+        // player1がいない部屋には参加できない
+        if (!roomData.player1 || !roomData.player1.connected) {
+            alert("ルームのホストが見つかりません。");
+            resetJoinUI();
+            return;
+        }
+
+        // player2がすでに接続済みか確認
+        if (roomData.player2 && roomData.player2.connected) {
+            alert("このルームは満員です。");
+            resetJoinUI();
+            return;
+        }
+
+        // player1として空き部屋に入るか、player2として参加するか判定
+        // 自分がplayer1（部屋作成者）のケースはここでは想定しない（参戦専用）
+        myRole = "player2";
         const myCharId = Math.floor(Math.random() * 4);
 
         roomRef.child("player2").set({
@@ -90,8 +97,20 @@ function joinRoom() {
         }).then(() => {
             enterGameScreen(roomId);
             initGame();
+        }).catch((err) => {
+            alert("参加に失敗しました: " + err.message);
+            resetJoinUI();
         });
+
+    }).catch((err) => {
+        alert("接続エラー: " + err.message);
+        resetJoinUI();
     });
+}
+
+function resetJoinUI() {
+    inputRoomId.disabled = false;
+    document.getElementById("btn-join").disabled = false;
 }
 
 function enterGameScreen(roomId) {
@@ -115,6 +134,16 @@ function initGame() {
             roomRef.child(`${myRole}/connected`).set(false);
         }
     });
+
+    // じゃんけんボタン
+    document.getElementById("btn-rock").addEventListener("click", () => submitHand("rock"));
+    document.getElementById("btn-paper").addEventListener("click", () => submitHand("paper"));
+    document.getElementById("btn-scissors").addEventListener("click", () => submitHand("scissors"));
+}
+
+function submitHand(hand) {
+    if (!roomRef || !myRole) return;
+    roomRef.child(`${myRole}/hand`).set(hand);
 }
 
 function updateUI() {
@@ -129,7 +158,6 @@ function updateUI() {
         updatePlayerFace(p2Face, gameState.player2);
     } else {
         p2HpDisplay.textContent = "WAITING...";
-        // 相手がいないときは背景を消す
         p2Face.style.backgroundImage = "none";
     }
 }
@@ -137,32 +165,56 @@ function updateUI() {
 function updatePlayerFace(element, playerData) {
     if (!playerData || playerData.charId === null || playerData.charId === undefined) return;
 
-    element.style.backgroundImage = "url('chara_set.png')";
-    const charId = playerData.charId; 
+    const charId = playerData.charId;
     const hp = playerData.hp;
 
-    // キャラクターごとの横位置 (0〜3)
+    // 横位置：キャラID × スプライト幅
     const xPosition = charId * SPRITE_WIDTH;
-    // HPが1のときだけ、スプライトの2段目（泣き顔）を表示する
-    const yPosition = (hp === 1) ? SPRITE_HEIGHT : 0;
+    // 縦位置：HPに応じた行（HP3→0行目, HP2→1行目, HP1→2行目）
+    const yPosition = getSpriteRow(hp) * SPRITE_HEIGHT;
 
+    element.style.backgroundImage = "url('chara_set.png')";
     element.style.backgroundPosition = `-${xPosition}px -${yPosition}px`;
+    element.style.backgroundRepeat = "no-repeat";
 }
 
-// 簡易的な物理・演出描画（物理同期が必要な場合はここにgameStateの座標を反映）
 function renderGame() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    
-    // PC-98風グリッド背景（演出）
+
+    // PC-98風グリッド背景
     ctx.strokeStyle = "#000033";
-    for(let i=0; i<canvas.width; i+=20) {
-        ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i,canvas.height); ctx.stroke();
+    for (let i = 0; i < canvas.width; i += 20) {
+        ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, canvas.height); ctx.stroke();
     }
-    for(let j=0; j<canvas.height; j+=20) {
-        ctx.beginPath(); ctx.moveTo(0,j); ctx.lineTo(canvas.width,j); ctx.stroke();
+    for (let j = 0; j < canvas.height; j += 20) {
+        ctx.beginPath(); ctx.moveTo(0, j); ctx.lineTo(canvas.width, j); ctx.stroke();
     }
 
     ctx.fillStyle = "#ffffff";
     ctx.font = "16px monospace";
     ctx.fillText("BATTLE FIELD", 10, 20);
+
+    // 対戦状況の表示
+    if (gameState) {
+        const p1Hand = gameState.player1?.hand || "";
+        const p2Hand = gameState.player2?.hand || "";
+        const myHandLabel = myRole === "player1" ? p1Hand : p2Hand;
+
+        if (myHandLabel) {
+            ctx.fillStyle = "#00ff00";
+            ctx.font = "14px monospace";
+            ctx.fillText(`あなたの手: ${handToJa(myHandLabel)}`, 10, 50);
+        }
+
+        const roundStatus = gameState.roundStatus || "";
+        if (roundStatus === "result") {
+            ctx.fillStyle = "#ffff00";
+            ctx.font = "20px monospace";
+            ctx.fillText(gameState.resultText || "", 10, 100);
+        }
+    }
+}
+
+function handToJa(hand) {
+    return { rock: "グー", paper: "パー", scissors: "チョキ" }[hand] || hand;
 }
