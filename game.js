@@ -14,10 +14,11 @@ const database = firebase.database();
 
 // グローバル変数
 let roomId = "";
-let myRole = ""; // "player1" または "player2"
-let oppRole = ""; // "player2" または "player1"
+let myRole = ""; 
+let oppRole = ""; 
 let roomRef = null;
 let gameState = null;
+let isProcessingRound = false; // 連打・重複判定防止フラグ
 
 // DOM要素
 const lobbyScreen = document.getElementById("lobby");
@@ -50,23 +51,20 @@ joinBtn.addEventListener("click", () => {
     joinRoom();
 });
 
-// ルーム入室ロジック
 function joinRoom() {
     roomRef.once("value").then((snapshot) => {
         const roomData = snapshot.val();
 
         if (!roomData) {
-            // ルームがなければ新しくplayer1として作成
             myRole = "player1";
             oppRole = "player2";
             const initialData = {
                 player1: { hp: 3, hand: "", connected: true },
                 player2: { hp: 3, hand: "", connected: false },
-                roundStatus: "waiting" // waiting, battling, finished
+                roundStatus: "waiting"
             };
             roomRef.set(initialData).then(() => initGame());
         } else if (!roomData.player2.connected) {
-            // player2が空いていれば入室
             myRole = "player2";
             oppRole = "player1";
             roomRef.child("player2").set({ hp: 3, hand: "", connected: true })
@@ -77,14 +75,11 @@ function joinRoom() {
     });
 }
 
-// ゲーム画面の初期化と監視
 function initGame() {
     lobbyScreen.style.display = "none";
     gameScreen.style.display = "flex";
 
-    // プレイヤーが切断された場合の自動削除処理を登録
     roomRef.child(myRole).child("connected").onDisconnect().set(false);
-    // 自身が退出した、あるいは切断した際に自動でクリーンアップを試みる
     roomRef.onDisconnect().remove();
 
     // データベースの状態変更を監視
@@ -95,7 +90,7 @@ function initGame() {
         // 相手の接続確認
         if (!gameState[oppRole] || !gameState[oppRole].connected) {
             if (gameState.roundStatus !== "finished") {
-                showOverlay("相手の待機中...");
+                showOverlay("WAITING ENEMY...");
                 lockControls(true);
                 return;
             }
@@ -104,32 +99,46 @@ function initGame() {
                 hideOverlay();
                 lockControls(false);
                 roomRef.child("roundStatus").set("battling");
+                return;
             }
         }
 
-        // HPの更新
+        // HPのUI更新
         updateHpUI(myHpContainer, gameState[myRole].hp);
         updateHpUI(oppHpContainer, gameState[oppRole].hp);
 
-        // 自分が出した手の表示更新
+        // 自分の選択状態のUI更新
         if (gameState[myRole].hand) {
-            myHandBox.textContent = convertHandText(gameState[myRole].hand);
-        } else {
-            myHandBox.textContent = "？";
+            myHandBox.textContent = "SET OK"; 
+        } else if (!isProcessingRound) {
+            myHandBox.textContent = "READY";
             resetButtonSelection();
         }
 
-        // お互いが手を出し終えたか判定
-        if (gameState.roundStatus === "battling" && gameState.player1.hand && gameState.player2.hand) {
+        // 相手の選択状態のUI表示（判定中以外は隠す）
+        if (!isProcessingRound) {
+            if (gameState[oppRole].hand) {
+                oppHandBox.textContent = "SET OK";
+            } else {
+                oppHandBox.textContent = "READY";
+            }
+        }
+
+        // お互いが手を出し終えた瞬間の処理
+        if (gameState.roundStatus === "battling" && gameState.player1.hand && gameState.player2.hand && !isProcessingRound) {
+            isProcessingRound = true;
             lockControls(true);
+            
+            // 出した手をオープン
+            myHandBox.textContent = convertHandText(gameState[myRole].hand);
             oppHandBox.textContent = convertHandText(gameState[oppRole].hand);
             
-            // 一瞬だけ判定処理を遅らせて手を見せる
+            // 演出と次ラウンド移行のためのウェイト
             setTimeout(() => {
                 if (myRole === "player1") {
                     judgeRound(gameState.player1.hand, gameState.player2.hand);
                 }
-            }, 1000);
+            }, 1500);
         }
     });
 
@@ -138,13 +147,13 @@ function initGame() {
         const msg = snapshot.val();
         const msgDiv = document.createElement("div");
         msgDiv.className = "chat-row";
-        msgDiv.textContent = msg.sender === myRole ? `自分: ${msg.text}` : `相手: ${msg.text}`;
+        msgDiv.textContent = msg.sender === myRole ? `1P: ${msg.text}` : `2P: ${msg.text}`;
         chatMessages.appendChild(msgDiv);
         chatMessages.scrollTop = chatMessages.scrollHeight;
     });
 }
 
-// じゃんけんの勝敗判定 (player1側でのみ1回だけ計算してDBを更新する)
+// 勝敗および次ラウンド移行処理
 function judgeRound(p1Hand, p2Hand) {
     let p1Hp = gameState.player1.hp;
     let p2Hp = gameState.player2.hp;
@@ -155,20 +164,18 @@ function judgeRound(p1Hand, p2Hand) {
             (p1Hand === "C" && p2Hand === "P") ||
             (p1Hand === "P" && p2Hand === "G")
         ) {
-            p2Hp--; // player1の勝ち -> player2のHPマイナス
+            p2Hp--; 
         } else {
-            p1Hp--; // player2の勝ち -> player1のHPマイナス
+            p1Hp--; 
         }
     }
 
-    const updates = {
-        "player1/hp": p1Hp,
-        "player2/hp": p2Hp,
-        "player1/hand": "",
-        "player2/hand": ""
-    };
+    const updates = {};
+    updates["player1/hp"] = p1Hp;
+    updates["player2/hp"] = p2Hp;
+    updates["player1/hand"] = "";
+    updates["player2/hand"] = "";
 
-    // どちらかのHPが0になったらゲーム終了
     if (p1Hp <= 0 || p2Hp <= 0) {
         updates["roundStatus"] = "finished";
         roomRef.update(updates).then(() => {
@@ -177,15 +184,15 @@ function judgeRound(p1Hand, p2Hand) {
             }, 500);
         });
     } else {
-        // 次のラウンドへ
+        // 次のラウンドへ移行可能な状態に更新
         roomRef.update(updates).then(() => {
-            oppHandBox.textContent = "？";
+            // ローカルの判定処理中フラグを解除し、ボタンロックを開放
+            isProcessingRound = false;
             lockControls(false);
         });
     }
 }
 
-// ゲーム決着処理とデータベースのクリーンアップ
 function finishGame(p1Hp, p2Hp) {
     lockControls(true);
     let amIWinner = false;
@@ -193,40 +200,37 @@ function finishGame(p1Hp, p2Hp) {
     if (myRole === "player2" && p2Hp > 0) amIWinner = true;
 
     if (amIWinner) {
-        showOverlay("あなたの勝ち！");
-        myFace.textContent = "^-^";
-        oppFace.textContent = "QAQ";
+        showOverlay("GAME OVER - YOU WIN");
+        myFace.textContent = "＼(^o^)／";
+        oppFace.textContent = "( T_T )";
     } else {
-        showOverlay("あなたの負け...");
-        myFace.textContent = "QAQ";
-        oppFace.textContent = "^-^";
+        showOverlay("GAME OVER - YOU LOSE");
+        myFace.textContent = "( T_T )";
+        oppFace.textContent = "＼(^o^)／";
     }
 
-    // ゲーム終了後は3秒後にルームの全データを完全に消去してロビーに戻る
     setTimeout(() => {
         roomRef.remove().then(() => {
             location.reload();
         });
-    }, 4000);
+    }, 5000);
 }
 
-// 手ボタンのクリックイベント
+// ボタン選択
 handButtons.forEach(btn => {
     btn.addEventListener("click", () => {
-        if (gameState.roundStatus !== "battling" || gameState[myRole].hand) return;
+        if (!gameState || gameState.roundStatus !== "battling" || gameState[myRole].hand || isProcessingRound) return;
         
         const selectedHand = btn.getAttribute("data-hand");
         btn.classList.add("selected");
-        
-        // 自分の手をデータベースに書き込み
         roomRef.child(myRole).child("hand").set(selectedHand);
     });
 });
 
-// チャット送信処理
+// チャット送信
 function sendChatMessage() {
     const text = chatInput.value.trim();
-    if (!text) return;
+    if (!text || !roomRef) return;
     
     roomRef.child("chat").push({
         sender: myRole,
@@ -240,7 +244,6 @@ chatInput.addEventListener("keypress", (e) => {
     if (e.key === "Enter") sendChatMessage();
 });
 
-// ユーティリティ関数群
 function updateHpUI(container, hp) {
     const hearts = container.querySelectorAll(".heart");
     hearts.forEach((heart, index) => {
@@ -253,10 +256,10 @@ function updateHpUI(container, hp) {
 }
 
 function convertHandText(code) {
-    if (code === "G") return "グー";
-    if (code === "C") return "チョキ";
-    if (code === "P") return "パー";
-    return "？";
+    if (code === "G") return "グー [ROCK]";
+    if (code === "C") return "チョキ [SCISSORS]";
+    if (code === "P") return "パー [PAPER]";
+    return "READY";
 }
 
 function lockControls(state) {
