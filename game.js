@@ -1,6 +1,6 @@
-// ==============================
+// ============================================================
 // Firebase設定（自分のプロジェクト情報に書き換えてください）
-// ==============================
+// ============================================================
 const firebaseConfig = {
     apiKey: "YOUR_API_KEY",
     authDomain: "YOUR_AUTH_DOMAIN",
@@ -12,339 +12,294 @@ const firebaseConfig = {
 };
 
 firebase.initializeApp(firebaseConfig);
-const database = firebase.database();
+const db = firebase.database();
 
-// ==============================
-// 状態変数
-// ==============================
-let roomRef             = null;
-let myRole              = null;
-let gameState           = null;
-let isProcessingResult  = false;
-let gameListenerActive  = false; // リスナー二重登録防止
+// ============================================================
+// グローバル変数
+// ============================================================
+let myRole  = null;   // "player1" | "player2"
+let roomRef = null;
 
-const SPRITE_WIDTH  = 120;
-const SPRITE_HEIGHT = 120;
+const SPRITE_W = 120;
+const SPRITE_H = 120;
 
-// ==============================
-// DOM取得（HTML読み込み後に確実に存在する）
-// ==============================
-const setupScreen   = document.getElementById("setup-screen");
-const gameScreen    = document.getElementById("game-screen");
-const displayRoomId = document.getElementById("display-room-id");
-const inputRoomId   = document.getElementById("input-room-id");
-const btnJoin       = document.getElementById("btn-join");
-const p1Face        = document.getElementById("p1-face");
-const p2Face        = document.getElementById("p2-face");
-const p1HpDisplay   = document.getElementById("p1-hp");
-const p2HpDisplay   = document.getElementById("p2-hp");
-const canvas        = document.getElementById("gameCanvas");
-const ctx           = canvas.getContext("2d");
+// ============================================================
+// 起動時：ボタンだけ登録
+// ============================================================
+document.getElementById("btn-join").onclick = onClickEnter;
+document.getElementById("input-room-id").onkeydown = (e) => { if (e.key === "Enter") onClickEnter(); };
 
-// じゃんけんボタンはHTML側で一度だけ登録
-document.getElementById("btn-rock")    .addEventListener("click", () => submitHand("rock"));
-document.getElementById("btn-paper")   .addEventListener("click", () => submitHand("paper"));
-document.getElementById("btn-scissors").addEventListener("click", () => submitHand("scissors"));
-
-// ==============================
-// 入室ボタン
-// ==============================
-btnJoin.addEventListener("click", enterRoom);
-inputRoomId.addEventListener("keydown", (e) => { if (e.key === "Enter") enterRoom(); });
-
-// ==============================
-// 入室処理（ホスト自動判定）
-// ==============================
-function enterRoom() {
-    const roomId = inputRoomId.value.trim();
+// ============================================================
+// ENTER ボタン処理
+// ============================================================
+function onClickEnter() {
+    const roomId = document.getElementById("input-room-id").value.trim();
     if (!/^\d{4}$/.test(roomId)) {
         alert("4桁の数字を入力してください。");
         return;
     }
 
-    setJoinUIEnabled(false);
-    roomRef = database.ref("rooms/" + roomId);
+    document.getElementById("btn-join").disabled = true;
+    document.getElementById("input-room-id").disabled = true;
 
-    roomRef.once("value")
-        .then((snapshot) => {
-            const data = snapshot.val();
+    const ref = db.ref("rooms/" + roomId);
 
-            if (!data) {
-                // ── 新規ルーム作成 → player1 ──
-                myRole = "player1";
-                const charId = Math.floor(Math.random() * 4);
-                return roomRef.set({
-                    player1:     { hp: 3, hand: "", connected: true,  charId: charId },
-                    player2:     { hp: 3, hand: "", connected: false, charId: null   },
-                    roundStatus: "waiting",
-                    resultText:  ""
-                });
-            }
+    ref.once("value").then((snap) => {
+        const data = snap.val();
+        log("取得したルームデータ:", data);
 
-            if (!data.player1 || !data.player1.connected) {
-                // ── player1の席が空き → player1として参加 ──
-                myRole = "player1";
-                const charId = Math.floor(Math.random() * 4);
-                return roomRef.child("player1").update({
-                    hp: data.player1 ? data.player1.hp : 3,
-                    hand: "",
-                    connected: true,
-                    charId: charId
-                });
-            }
-
-            if (!data.player2 || !data.player2.connected) {
-                // ── player2の席が空き → player2として参加 ──
-                myRole = "player2";
-                const charId = Math.floor(Math.random() * 4);
-                return roomRef.child("player2").update({
-                    hp: data.player2 ? data.player2.hp : 3,
-                    hand: "",
-                    connected: true,
-                    charId: charId
-                });
-            }
-
-            // 満員
-            throw new Error("FULL");
-        })
-        .then(() => {
-            // Firebase書き込み完了後に画面遷移
-            enterGameScreen(roomId);
-            startListening();
-        })
-        .catch((err) => {
-            if (err.message === "FULL") {
-                alert("このルームは満員です。");
-            } else {
-                alert("エラー: " + err.message);
-            }
-            setJoinUIEnabled(true);
-        });
-}
-
-function setJoinUIEnabled(enabled) {
-    inputRoomId.disabled = !enabled;
-    btnJoin.disabled     = !enabled;
-}
-
-function enterGameScreen(roomId) {
-    setupScreen.style.display = "none";
-    gameScreen.style.display  = "block";
-    displayRoomId.textContent = roomId;
-}
-
-// ==============================
-// Firebaseリアルタイム監視（一度だけ登録）
-// ==============================
-function startListening() {
-    if (gameListenerActive) return;
-    gameListenerActive = true;
-
-    roomRef.on("value", (snapshot) => {
-        gameState = snapshot.val();
-        if (!gameState) return;
-
-        updateUI();
-        renderGame();
-
-        // player1だけが勝敗処理を担当
-        if (
-            myRole === "player1" &&
-            !isProcessingResult &&
-            gameState.roundStatus === "waiting" &&
-            gameState.player1 && gameState.player1.hand &&
-            gameState.player2 && gameState.player2.hand &&
-            gameState.player2.connected
-        ) {
-            isProcessingResult = true;
-            resolveRound();
+        if (!data) {
+            // ルームなし → 自分がplayer1として作成
+            myRole  = "player1";
+            roomRef = ref;
+            const charId = rand4();
+            return ref.set({
+                player1:     { hp: 3, hand: "", connected: true,  charId },
+                player2:     { hp: 3, hand: "", connected: false, charId: null },
+                roundStatus: "waiting",
+                resultText:  ""
+            });
         }
-    });
 
-    // 切断時にconnectedをfalseに
-    window.addEventListener("beforeunload", () => {
-        if (roomRef && myRole) {
-            roomRef.child(myRole + "/connected").set(false);
+        // ルームあり
+        const p1ok = data.player1 && data.player1.connected;
+        const p2ok = data.player2 && data.player2.connected;
+
+        if (!p1ok) {
+            myRole  = "player1";
+            roomRef = ref;
+            return ref.child("player1").update({ connected: true, hand: "", charId: rand4() });
         }
+        if (!p2ok) {
+            myRole  = "player2";
+            roomRef = ref;
+            return ref.child("player2").update({ connected: true, hand: "", charId: rand4() });
+        }
+
+        throw new Error("FULL");
+
+    }).then(() => {
+        log("書き込み成功。role =", myRole);
+        showGameScreen(document.getElementById("input-room-id").value.trim());
+        startWatching();
+
+    }).catch((err) => {
+        log("エラー:", err.message);
+        alert(err.message === "FULL" ? "このルームは満員です。" : "エラー: " + err.message);
+        document.getElementById("btn-join").disabled = false;
+        document.getElementById("input-room-id").disabled = false;
     });
 }
 
-// ==============================
-// 手を出す
-// ==============================
+function rand4() { return Math.floor(Math.random() * 4); }
+
+function log(...args) { console.log("[RPS]", ...args); }
+
+// ============================================================
+// ゲーム画面へ切り替え
+// ============================================================
+function showGameScreen(roomId) {
+    document.getElementById("setup-screen").style.display = "none";
+    document.getElementById("game-screen").style.display  = "block";
+    document.getElementById("display-room-id").textContent = roomId;
+    log("ゲーム画面に切り替えました");
+}
+
+// ============================================================
+// じゃんけんボタン（game-screen内）
+// ============================================================
+document.getElementById("btn-rock")    .onclick = () => submitHand("rock");
+document.getElementById("btn-paper")   .onclick = () => submitHand("paper");
+document.getElementById("btn-scissors").onclick = () => submitHand("scissors");
+
 function submitHand(hand) {
-    if (!roomRef || !myRole || !gameState) return;
-    if (gameState.roundStatus !== "waiting") return;
+    if (!roomRef || !myRole) { log("未接続"); return; }
 
-    const me = gameState[myRole];
-    if (me && me.hand) return; // 既に選択済み
-    if (!gameState.player2 || !gameState.player2.connected) return; // 相手未接続
+    roomRef.once("value").then((snap) => {
+        const d = snap.val();
+        if (!d) return;
+        if (d.roundStatus !== "waiting") { log("結果表示中のため無効"); return; }
+        if (d[myRole] && d[myRole].hand) { log("すでに選択済み"); return; }
+        if (!d.player2 || !d.player2.connected) { log("相手未接続"); return; }
 
-    roomRef.child(myRole + "/hand").set(hand);
+        log("手を出す:", hand);
+        roomRef.child(myRole + "/hand").set(hand);
+    });
 }
 
-// ==============================
+// ============================================================
+// Firebaseリアルタイム監視
+// ============================================================
+function startWatching() {
+    log("監視開始");
+    roomRef.on("value", (snap) => {
+        const d = snap.val();
+        if (!d) return;
+
+        renderUI(d);
+
+        // player1だけが勝敗処理を実行
+        if (
+            myRole === "player1"          &&
+            d.roundStatus === "waiting"   &&
+            d.player1 && d.player1.hand   &&
+            d.player2 && d.player2.hand   &&
+            d.player2.connected
+        ) {
+            resolveRound(d);
+        }
+    });
+
+    window.addEventListener("beforeunload", () => {
+        if (roomRef && myRole) roomRef.child(myRole + "/connected").set(false);
+    });
+}
+
+// ============================================================
 // 勝敗処理（player1のみ）
-// ==============================
-function resolveRound() {
-    const p1Hand = gameState.player1.hand;
-    const p2Hand = gameState.player2.hand;
-    const result = judgeHand(p1Hand, p2Hand);
+// ============================================================
+let resolving = false;
 
-    let p1Hp = gameState.player1.hp;
-    let p2Hp = gameState.player2.hp;
-    let resultText = "";
+function resolveRound(d) {
+    if (resolving) return;
+    resolving = true;
 
-    if (result === "p1win") {
-        p2Hp = Math.max(0, p2Hp - 1);
-        resultText = "PLAYER 1 の勝ち！";
-    } else if (result === "p2win") {
-        p1Hp = Math.max(0, p1Hp - 1);
-        resultText = "PLAYER 2 の勝ち！";
-    } else {
-        resultText = "あいこ！";
-    }
+    const h1 = d.player1.hand;
+    const h2 = d.player2.hand;
+    const r  = judge(h1, h2);
 
-    const gameOver = (p1Hp <= 0 || p2Hp <= 0);
-    if (p1Hp <= 0) resultText = "PLAYER 1 LOSE  —  GAME OVER";
-    if (p2Hp <= 0) resultText = "PLAYER 2 LOSE  —  GAME OVER";
+    let p1hp = d.player1.hp;
+    let p2hp = d.player2.hp;
+    let text = "";
+
+    if (r === "p1win") { p2hp = Math.max(0, p2hp - 1); text = "PLAYER 1 の勝ち！"; }
+    else if (r === "p2win") { p1hp = Math.max(0, p1hp - 1); text = "PLAYER 2 の勝ち！"; }
+    else { text = "あいこ！"; }
+
+    const over = p1hp <= 0 || p2hp <= 0;
+    if (p1hp <= 0) text = "PLAYER 1 LOSE — GAME OVER";
+    if (p2hp <= 0) text = "PLAYER 2 LOSE — GAME OVER";
+
+    log("判定:", h1, "vs", h2, "→", r, text);
 
     roomRef.update({
-        "player1/hp":   p1Hp,
-        "player2/hp":   p2Hp,
-        "player1/hand": p1Hand,
-        "player2/hand": p2Hand,
-        roundStatus:    "result",
-        resultText:     resultText
+        "player1/hp": p1hp, "player2/hp": p2hp,
+        "player1/hand": h1, "player2/hand": h2,
+        roundStatus: "result", resultText: text
     }).then(() => {
-        if (gameOver) {
-            isProcessingResult = false;
-            return;
-        }
+        if (over) { resolving = false; return; }
         setTimeout(() => {
             roomRef.update({
-                "player1/hand": "",
-                "player2/hand": "",
-                roundStatus:    "waiting",
-                resultText:     ""
-            }).then(() => {
-                isProcessingResult = false;
-            });
+                "player1/hand": "", "player2/hand": "",
+                roundStatus: "waiting", resultText: ""
+            }).then(() => { resolving = false; });
         }, 3000);
     });
 }
 
-function judgeHand(h1, h2) {
+function judge(h1, h2) {
     if (h1 === h2) return "draw";
-    if (
-        (h1 === "rock"     && h2 === "scissors") ||
-        (h1 === "scissors" && h2 === "paper")    ||
-        (h1 === "paper"    && h2 === "rock")
-    ) return "p1win";
+    if ((h1==="rock"&&h2==="scissors")||(h1==="scissors"&&h2==="paper")||(h1==="paper"&&h2==="rock")) return "p1win";
     return "p2win";
 }
 
-// ==============================
-// UI更新
-// ==============================
-function updateUI() {
-    const p1 = gameState.player1;
-    const p2 = gameState.player2;
+// ============================================================
+// UI描画
+// ============================================================
+function renderUI(d) {
+    const p1 = d.player1;
+    const p2 = d.player2;
 
-    if (p1) {
-        p1HpDisplay.textContent = "HP: " + "❤️".repeat(Math.max(0, p1.hp));
-        updatePlayerFace(p1Face, p1);
-    }
+    // HP
+    document.getElementById("p1-hp").textContent =
+        p1 ? "HP: " + "❤️".repeat(Math.max(0, p1.hp)) : "HP: ---";
+    document.getElementById("p2-hp").textContent =
+        (p2 && p2.connected) ? "HP: " + "❤️".repeat(Math.max(0, p2.hp)) : "WAITING...";
 
-    if (p2 && p2.connected) {
-        p2HpDisplay.textContent = "HP: " + "❤️".repeat(Math.max(0, p2.hp));
-        updatePlayerFace(p2Face, p2);
-    } else {
-        p2HpDisplay.textContent = "WAITING...";
-        p2Face.style.backgroundImage = "none";
-    }
+    // 顔スプライト
+    setFace("p1-face", p1);
+    setFace("p2-face", (p2 && p2.connected) ? p2 : null);
+
+    // Canvas
+    renderCanvas(d);
 }
 
-function getSpriteRow(hp) {
+function setFace(id, playerData) {
+    const el = document.getElementById(id);
+    if (!playerData || playerData.charId == null) {
+        el.style.backgroundImage = "none";
+        return;
+    }
+    const x = playerData.charId * SPRITE_W;
+    const y = spriteRow(playerData.hp) * SPRITE_H;
+    el.style.backgroundImage    = "url('chara_set.png')";
+    el.style.backgroundPosition = `-${x}px -${y}px`;
+    el.style.backgroundRepeat   = "no-repeat";
+}
+
+function spriteRow(hp) {
     if (hp >= 3) return 0;
     if (hp === 2) return 1;
     return 2;
 }
 
-function updatePlayerFace(el, playerData) {
-    if (!playerData || playerData.charId == null) return;
-    const x = playerData.charId * SPRITE_WIDTH;
-    const y = getSpriteRow(playerData.hp) * SPRITE_HEIGHT;
-    el.style.backgroundImage    = "url('chara_set.png')";
-    el.style.backgroundPosition = "-" + x + "px -" + y + "px";
-    el.style.backgroundRepeat   = "no-repeat";
-}
-
-// ==============================
+// ============================================================
 // Canvas描画
-// ==============================
-function renderGame() {
+// ============================================================
+const canvas = document.getElementById("gameCanvas");
+const ctx    = canvas.getContext("2d");
+
+function renderCanvas(d) {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // グリッド背景
+    // グリッド
     ctx.strokeStyle = "#000033";
     ctx.lineWidth   = 0.5;
-    for (let i = 0; i < canvas.width;  i += 20) {
-        ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, canvas.height); ctx.stroke();
-    }
-    for (let j = 0; j < canvas.height; j += 20) {
-        ctx.beginPath(); ctx.moveTo(0, j); ctx.lineTo(canvas.width, j); ctx.stroke();
-    }
+    for (let i = 0; i < canvas.width;  i += 20) { ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i,canvas.height); ctx.stroke(); }
+    for (let j = 0; j < canvas.height; j += 20) { ctx.beginPath(); ctx.moveTo(0,j); ctx.lineTo(canvas.width,j);  ctx.stroke(); }
 
-    ctx.lineWidth   = 1;
-    ctx.fillStyle   = "#ffffff";
-    ctx.font        = "16px monospace";
+    ctx.lineWidth = 1;
+    ctx.fillStyle = "#ffffff";
+    ctx.font      = "16px monospace";
     ctx.fillText("BATTLE FIELD", 10, 24);
 
-    if (!gameState) return;
+    const p2on = d.player2 && d.player2.connected;
 
-    const status      = gameState.roundStatus || "waiting";
-    const p2Connected = gameState.player2 && gameState.player2.connected;
-
-    if (!p2Connected) {
+    if (!p2on) {
         ctx.fillStyle = "#00ffff";
         ctx.font      = "18px monospace";
-        ctx.fillText("相手の参加を待っています...", 40, 150);
+        ctx.fillText("相手の参加を待っています...", 30, 160);
         return;
     }
 
-    // 自分の手
-    const myHand  = gameState[myRole]                                  ? gameState[myRole].hand  : "";
+    const status  = d.roundStatus || "waiting";
+    const myHand  = d[myRole] ? d[myRole].hand : "";
     const oppRole = myRole === "player1" ? "player2" : "player1";
-    const oppHand = gameState[oppRole]                                 ? gameState[oppRole].hand  : "";
+    const oppHand = d[oppRole] ? d[oppRole].hand : "";
 
     ctx.font = "18px monospace";
+
     if (myHand) {
         ctx.fillStyle = "#00ff00";
-        ctx.fillText("あなた: " + handToJa(myHand), 20, 80);
+        ctx.fillText("あなた: " + ja(myHand), 20, 80);
     } else {
         ctx.fillStyle = "#888888";
         ctx.fillText("手を選んでください...", 20, 80);
     }
 
-    // 相手の手（結果時のみ公開）
     if (status === "result" && oppHand) {
         ctx.fillStyle = "#ff8800";
-        ctx.fillText("相手: " + handToJa(oppHand), 20, 120);
+        ctx.fillText("相手: " + ja(oppHand), 20, 120);
     } else if (oppHand) {
         ctx.fillStyle = "#888888";
         ctx.fillText("相手: 選択済み ✔", 20, 120);
     }
 
-    // 結果
     if (status === "result") {
         ctx.fillStyle = "#ffff00";
-        ctx.font      = "bold 24px monospace";
-        ctx.fillText(gameState.resultText || "", 20, 200);
+        ctx.font      = "bold 22px monospace";
+        ctx.fillText(d.resultText || "", 20, 200);
     }
 }
 
-function handToJa(hand) {
-    return { rock: "グー ✊", paper: "パー ✋", scissors: "チョキ ✌" }[hand] || hand;
-}
+function ja(h) { return {rock:"グー ✊", paper:"パー ✋", scissors:"チョキ ✌"}[h] || h; }
