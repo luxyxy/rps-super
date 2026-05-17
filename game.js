@@ -12,7 +12,8 @@ const firebaseConfig = {
 };
 
 firebase.initializeApp(firebaseConfig);
-const db = firebase.database();
+const db   = firebase.database();
+const auth = firebase.auth();
 
 // ============================================================
 // スプライト座標
@@ -53,9 +54,23 @@ document.getElementById("chat-input")   .onkeydown = (e) => { if (e.key === "Ent
     document.getElementById("btn-" + id).onclick = () => sendEmoji(id);
 });
 
-// セッション固有IDを生成（認証不要）
-myUid = db.ref().push().key;
-log("myUid:", myUid);
+// ============================================================
+// 匿名認証：完了するまでENTERを押せないようにする
+// ============================================================
+document.getElementById("btn-join").disabled = true;
+
+auth.signInAnonymously().catch((err) => {
+    log("認証失敗:", err.message);
+    alert("認証エラー: " + err.message);
+});
+
+auth.onAuthStateChanged((user) => {
+    if (user) {
+        myUid = user.uid;
+        log("認証完了 uid:", myUid);
+        document.getElementById("btn-join").disabled = false;
+    }
+});
 
 // ============================================================
 // ENTER ボタン処理
