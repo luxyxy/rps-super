@@ -37,7 +37,6 @@
         #setup-screen h1 {
             font-size: clamp(28px, 8vw, 60px);
             color: var(--green);
-            
             margin-bottom: 40px;
             letter-spacing: 4px;
         }
@@ -51,33 +50,18 @@
             width: 100%;
             max-width: 340px;
         }
-        #setup-join p {
-            color: var(--dim);
-            font-size: 13px;
-            line-height: 1.7;
-            text-align: center;
-        }
+        #setup-join p { color: var(--dim); font-size: 13px; line-height: 1.7; text-align: center; }
         input[type="text"] {
-            background: #000;
-            color: #fff;
+            background: #000; color: #fff;
             border: 2px solid var(--cyan);
-            padding: 14px;
-            font-size: 28px;
-            font-family: inherit;
-            text-align: center;
-            width: 100%;
-            letter-spacing: 10px;
+            padding: 14px; font-size: 28px;
+            font-family: inherit; text-align: center;
+            width: 100%; letter-spacing: 10px;
         }
         #btn-join {
-            width: 100%;
-            padding: 14px;
-            font-size: 18px;
-            background: #000;
-            color: #fff;
-            border: 2px solid #fff;
-            font-family: inherit;
-            cursor: pointer;
-            letter-spacing: 3px;
+            width: 100%; padding: 14px; font-size: 18px;
+            background: #000; color: #fff; border: 2px solid #fff;
+            font-family: inherit; cursor: pointer; letter-spacing: 3px;
         }
         #btn-join:hover:not(:disabled) { background: #fff; color: #000; }
         #btn-join:disabled { opacity: 0.35; cursor: not-allowed; }
@@ -93,141 +77,153 @@
         #game-screen h1 {
             font-size: clamp(22px, 6vw, 44px);
             color: var(--green);
-            
             margin-bottom: 4px;
             letter-spacing: 4px;
         }
-        .room-info {
-            font-size: 12px;
-            color: var(--cyan);
-            margin-bottom: 12px;
-            letter-spacing: 2px;
-        }
+        .room-info { font-size: 12px; color: var(--cyan); margin-bottom: 12px; letter-spacing: 2px; }
 
-        /* ── プレイヤーエリア ── */
+        /* プレイヤーエリア */
         .players-row {
-            display: flex;
-            gap: 8px;
-            width: 100%;
-            max-width: 680px;
-            margin-bottom: 12px;
+            display: flex; gap: 8px;
+            width: 100%; max-width: 680px; margin-bottom: 12px;
         }
         .player-box {
-            flex: 1;
-            background: #0a0a0a;
-            border: 2px solid var(--border);
-            padding: 8px 6px 10px;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
+            flex: 1; background: #0a0a0a; border: 2px solid var(--border);
+            padding: 8px 6px 10px; display: flex; flex-direction: column; align-items: center;
         }
-        .player-name {
-            font-size: clamp(11px, 3vw, 14px);
-            color: var(--yellow);
-            margin-bottom: 6px;
-            letter-spacing: 2px;
-        }
-
-        /* 顔canvas */
+        .player-name { font-size: clamp(11px, 3vw, 14px); color: var(--yellow); margin-bottom: 6px; letter-spacing: 2px; }
         .face-wrap {
-            width: 150px;
-            height: 176px;
-            border: 2px solid #555;
-            background: #111;
-            overflow: hidden;
-            flex-shrink: 0;
+            width: 150px; height: 176px;
+            border: 2px solid #555; background: #111; overflow: hidden; flex-shrink: 0;
         }
         .face-wrap canvas { display: block; image-rendering: pixelated; }
-        @media (max-width: 380px) {
-            .face-wrap { width: 110px; height: 129px; }
-        }
-
-        /* HPハート */
+        @media (max-width: 380px) { .face-wrap { width: 110px; height: 129px; } }
         .hp-row {
-            margin-top: 8px;
-            display: flex;
-            gap: 2px;
-            align-items: center;
-            justify-content: center;
-            min-height: 32px;
+            margin-top: 8px; display: flex; gap: 2px;
+            align-items: center; justify-content: center; min-height: 32px;
         }
         .hp-row img { width: 28px; height: 28px; image-rendering: pixelated; }
         .hp-waiting { color: var(--dim); font-size: 11px; }
 
-        /* ── バトルフィールド ── */
+        /* バトルフィールド */
         #battle-wrap {
-            width: 100%;
-            max-width: 680px;
-            border: 2px solid #555;
-            background: #000022;
-            margin-bottom: 12px;
-            min-height: 120px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            width: 100%; max-width: 680px;
+            border: 2px solid #555; background: #000022;
+            margin-bottom: 10px; min-height: 120px;
+            display: flex; align-items: center; justify-content: center;
             padding: 10px 12px;
         }
         #battle-text { width: 100%; text-align: center; }
-
-        .hand-row {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 10px;
-            margin-bottom: 6px;
-        }
+        .hand-row { display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 6px; }
         .hand-cell { display: flex; flex-direction: column; align-items: center; gap: 4px; }
         .hand-cell span { font-size: 11px; color: var(--dim); }
-        .hand-img {
-            width: 72px; height: 72px;
-            object-fit: contain;
-            image-rendering: pixelated;
-        }
+        .hand-img { width: 72px; height: 72px; object-fit: contain; image-rendering: pixelated; }
         @media (max-width: 380px) { .hand-img { width: 52px; height: 52px; } }
         .hand-placeholder {
-            width: 72px; height: 72px;
-            border: 2px solid #333;
-            display: flex; align-items: center; justify-content: center;
-            color: #444; font-size: 22px;
+            width: 72px; height: 72px; border: 2px solid #333;
+            display: flex; align-items: center; justify-content: center; color: #444; font-size: 22px;
         }
         @media (max-width: 380px) { .hand-placeholder { width: 52px; height: 52px; } }
         .vs-label { font-size: clamp(13px, 3.5vw, 18px); color: #555; font-weight: bold; }
-        .result-text {
-            font-size: clamp(13px, 3.8vw, 17px);
-            color: var(--yellow);
-            letter-spacing: 2px;
-            margin-top: 4px;
-        }
+        .result-text { font-size: clamp(13px, 3.8vw, 17px); color: var(--yellow); letter-spacing: 2px; margin-top: 4px; }
 
-        /* ── じゃんけんボタン（画像のみ、テキストなし） ── */
-        .controls {
-            display: flex;
-            gap: 10px;
+        /* RETRYエリア */
+        #retry-wrap {
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            gap: 6px;
             width: 100%;
             max-width: 680px;
-            justify-content: center;
+            margin-bottom: 10px;
         }
+        #btn-retry {
+            padding: 12px 40px; font-size: 18px; letter-spacing: 3px;
+            background: #000; color: var(--yellow);
+            border: 2px solid var(--yellow);
+            font-family: inherit; cursor: pointer;
+        }
+        #btn-retry:hover:not(:disabled) { background: var(--yellow); color: #000; }
+        #btn-retry:disabled { opacity: 0.4; cursor: not-allowed; }
+        #retry-status { font-size: 12px; color: var(--dim); }
+
+        /* じゃんけんボタン */
+        .controls { display: flex; gap: 10px; width: 100%; max-width: 680px; justify-content: center; margin-bottom: 14px; }
         .btn-hand {
-            flex: 1;
-            max-width: 180px;
-            background: #000;
-            border: 2px solid #555;
-            padding: 10px 4px;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            flex: 1; max-width: 180px; background: #000; border: 2px solid #555;
+            padding: 10px 4px; cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
             transition: border-color 0.1s, background 0.1s;
         }
         .btn-hand:hover:not(:disabled) { border-color: #fff; background: #111; }
         .btn-hand:disabled { opacity: 0.35; cursor: not-allowed; }
-        .btn-hand img {
-            width: 70px; height: 70px;
-            object-fit: contain;
-            image-rendering: pixelated;
-            display: block;
-        }
+        .btn-hand img { width: 70px; height: 70px; object-fit: contain; image-rendering: pixelated; display: block; }
         @media (max-width: 380px) { .btn-hand img { width: 52px; height: 52px; } }
+
+        /* ========== チャットエリア ========== */
+        #chat-wrap {
+            width: 100%; max-width: 680px;
+            border: 2px solid var(--border);
+            background: #050505;
+            display: flex;
+            flex-direction: column;
+        }
+        #chat-log {
+            height: 160px;
+            overflow-y: auto;
+            padding: 8px 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            scroll-behavior: smooth;
+        }
+        #chat-log::-webkit-scrollbar { width: 4px; }
+        #chat-log::-webkit-scrollbar-track { background: #111; }
+        #chat-log::-webkit-scrollbar-thumb { background: #444; }
+
+        .chat-msg {
+            max-width: 80%;
+            padding: 5px 10px;
+            font-size: 13px;
+            line-height: 1.4;
+            word-break: break-all;
+        }
+        .chat-me    { align-self: flex-end; background: #002200; border: 1px solid #005500; color: #aaffaa; }
+        .chat-enemy { align-self: flex-start; background: #111; border: 1px solid #333; color: #ccc; }
+        .chat-emoji-img { width: 40px; height: 40px; image-rendering: pixelated; display: block; }
+
+        /* 絵文字選択 + テキスト入力 */
+        #chat-controls {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            padding: 6px 8px;
+            border-top: 1px solid var(--border);
+        }
+        .emoji-btns { display: flex; gap: 3px; flex-shrink: 0; }
+        .btn-emoji {
+            width: 36px; height: 36px;
+            background: #000; border: 1px solid #333;
+            padding: 2px; cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+            transition: border-color 0.1s;
+        }
+        .btn-emoji:hover { border-color: #fff; }
+        .btn-emoji img { width: 30px; height: 30px; image-rendering: pixelated; display: block; }
+        #chat-input {
+            flex: 1;
+            background: #000; color: #fff;
+            border: 1px solid #444;
+            padding: 6px 10px; font-size: 13px;
+            font-family: inherit;
+            min-width: 0;
+        }
+        #btn-send {
+            padding: 6px 14px; font-size: 13px; letter-spacing: 1px;
+            background: #000; color: #fff; border: 1px solid #fff;
+            font-family: inherit; cursor: pointer; flex-shrink: 0;
+        }
+        #btn-send:hover { background: #fff; color: #000; }
     </style>
 </head>
 <body>
@@ -247,14 +243,13 @@
     <h1>スーパー RPS</h1>
     <div class="room-info">ROOM: <span id="display-room-id">----</span></div>
 
+    <!-- プレイヤー -->
     <div class="players-row">
-        <!-- YOU -->
         <div class="player-box">
             <div class="player-name">YOU</div>
             <div class="face-wrap"><canvas id="face-canvas-p1"></canvas></div>
             <div id="p1-hp-row" class="hp-row"><span class="hp-waiting">---</span></div>
         </div>
-        <!-- ENEMY -->
         <div class="player-box">
             <div class="player-name">ENEMY</div>
             <div class="face-wrap"><canvas id="face-canvas-p2"></canvas></div>
@@ -269,7 +264,13 @@
         </div>
     </div>
 
-    <!-- じゃんけんボタン（画像のみ） -->
+    <!-- RETRYエリア -->
+    <div id="retry-wrap">
+        <button id="btn-retry">RETRY</button>
+        <div id="retry-status"></div>
+    </div>
+
+    <!-- じゃんけんボタン -->
     <div class="controls">
         <button class="btn-hand" id="btn-rock">
             <img src="gu.png" alt="GU">
@@ -280,6 +281,21 @@
         <button class="btn-hand" id="btn-scissors">
             <img src="choki.png" alt="CHOKI">
         </button>
+    </div>
+
+    <!-- チャットエリア -->
+    <div id="chat-wrap">
+        <div id="chat-log"></div>
+        <div id="chat-controls">
+            <div class="emoji-btns">
+                <button class="btn-emoji" id="btn-emo1"><img src="emo1.png" alt="emo1"></button>
+                <button class="btn-emoji" id="btn-emo2"><img src="emo2.png" alt="emo2"></button>
+                <button class="btn-emoji" id="btn-emo3"><img src="emo3.png" alt="emo3"></button>
+                <button class="btn-emoji" id="btn-emo4"><img src="emo4.png" alt="emo4"></button>
+            </div>
+            <input type="text" id="chat-input" placeholder="メッセージを入力..." maxlength="80">
+            <button id="btn-send">SEND</button>
+        </div>
     </div>
 </div>
 

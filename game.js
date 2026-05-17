@@ -15,43 +15,46 @@ firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 
 // ============================================================
-// スプライト座標（ピクセル単位で実測確定値）
-// 画像サイズ: 1097x858, 4列x3行
-//
-// 列:  col0=0-273,   col1=274-547, col2=548-821, col3=822-1096
-// 行:  row0=0-298,   row1=303-599, row2=600-857
-// セパレータ: y=299-302（白い区切り線）
+// スプライト座標
 // ============================================================
-const SP_COL_X = [4,   279, 554, 829]; // 各列の開始X
-const SP_COL_W = [270, 275, 270, 267]; // 各列の幅
-const SP_ROW_Y = [4,   300, 605];      // 各行の開始Y
-const SP_ROW_H = [291, 300, 252];      // 各行の高さ
-
-// 表示サイズ（CSS の face-wrap と一致させる）
-const DISP_W = 150;
-const DISP_H = 176;
+const SP_COL_X = [4,   279, 554, 829];
+const SP_COL_W = [270, 275, 270, 267];
+const SP_ROW_Y = [4,   300, 605];
+const SP_ROW_H = [291, 300, 252];
+const DISP_W   = 150;
+const DISP_H   = 176;
 
 // 画像プリロード
-const spriteImg = new Image();
-spriteImg.src = "chara_set.png";
-const imgH1 = new Image(); imgH1.src = "heart1.png";
-const imgH2 = new Image(); imgH2.src = "heart2.png";
+const spriteImg = new Image(); spriteImg.src = "chara_set.png";
+const imgH1     = new Image(); imgH1.src     = "heart1.png";
+const imgH2     = new Image(); imgH2.src     = "heart2.png";
 
 // ============================================================
 // グローバル状態
 // ============================================================
-let myRole    = null;
-let roomRef   = null;
-let resolving = false;
+let myRole      = null;
+let roomRef     = null;
+let resolving   = false;
+let gameOver    = false;   // ゲームオーバー中フラグ
+let chatRef     = null;    // チャット用リファレンス
+let chatLoaded  = false;   // 初回チャットロード済みフラグ
 
 // ============================================================
 // ボタン登録
 // ============================================================
-document.getElementById("btn-join").onclick        = onClickEnter;
+document.getElementById("btn-join")    .onclick    = onClickEnter;
 document.getElementById("input-room-id").onkeydown = (e) => { if (e.key === "Enter") onClickEnter(); };
 document.getElementById("btn-rock")    .onclick    = () => submitHand("rock");
 document.getElementById("btn-paper")  .onclick    = () => submitHand("paper");
 document.getElementById("btn-scissors").onclick    = () => submitHand("scissors");
+document.getElementById("btn-retry")  .onclick    = onClickRetry;
+document.getElementById("btn-send")   .onclick    = sendChat;
+document.getElementById("chat-input") .onkeydown  = (e) => { if (e.key === "Enter") sendChat(); };
+
+// 絵文字ボタン
+["emo1","emo2","emo3","emo4"].forEach((id) => {
+    document.getElementById("btn-" + id).onclick = () => sendEmoji(id);
+});
 
 // ============================================================
 // ENTER ボタン処理
@@ -71,13 +74,13 @@ function onClickEnter() {
             log("ルームデータ:", data);
 
             if (!data) {
-                // 新規ルーム → player1
                 myRole = "player1"; roomRef = ref;
                 return ref.set({
                     player1:     { hp: 3, hand: "", connected: true,  charId: randCharId(null) },
                     player2:     { hp: 3, hand: "", connected: false, charId: null },
                     roundStatus: "waiting",
-                    resultText:  ""
+                    resultText:  "",
+                    retryRequest: { player1: false, player2: false }
                 });
             }
 
@@ -85,26 +88,26 @@ function onClickEnter() {
             const p2on = !!(data.player2 && data.player2.connected);
 
             if (!p1on && !p2on) {
-                // 残骸 → リセットしてplayer1
                 myRole = "player1"; roomRef = ref;
                 return ref.set({
                     player1:     { hp: 3, hand: "", connected: true,  charId: randCharId(null) },
                     player2:     { hp: 3, hand: "", connected: false, charId: null },
                     roundStatus: "waiting",
-                    resultText:  ""
+                    resultText:  "",
+                    retryRequest: { player1: false, player2: false }
                 });
             }
             if (p1on && !p2on) {
-                // player2として参加
                 myRole = "player2"; roomRef = ref;
-                const p1c = data.player1 ? data.player1.charId : null;
-                return ref.child("player2").update({ hp: 3, hand: "", connected: true, charId: randCharId(p1c) });
+                return ref.child("player2").update({
+                    hp: 3, hand: "", connected: true, charId: randCharId(data.player1 ? data.player1.charId : null)
+                });
             }
             if (!p1on && p2on) {
-                // player1として再参加
                 myRole = "player1"; roomRef = ref;
-                const p2c = data.player2 ? data.player2.charId : null;
-                return ref.child("player1").update({ hp: 3, hand: "", connected: true, charId: randCharId(p2c) });
+                return ref.child("player1").update({
+                    hp: 3, hand: "", connected: true, charId: randCharId(data.player2 ? data.player2.charId : null)
+                });
             }
 
             throw new Error("FULL");
@@ -113,6 +116,7 @@ function onClickEnter() {
             log("書き込み完了 / role =", myRole);
             showGameScreen(document.getElementById("input-room-id").value.trim());
             startWatching();
+            startChat();
         })
         .catch((err) => {
             log("エラー:", err.message);
@@ -122,12 +126,10 @@ function onClickEnter() {
         });
 }
 
-// 相手と被らないランダムcharId (0-3)
 function randCharId(excludeId) {
     const ids = [0, 1, 2, 3].filter((id) => id !== excludeId);
     return ids[Math.floor(Math.random() * ids.length)];
 }
-
 function log(...a) { console.log("[RPS]", ...a); }
 
 // ============================================================
@@ -138,7 +140,6 @@ function showGameScreen(roomId) {
     document.getElementById("game-screen").style.display   = "flex";
     document.getElementById("display-room-id").textContent = roomId;
 
-    // canvas サイズを face-wrap の実サイズに合わせる
     const wraps = document.querySelectorAll(".face-wrap");
     ["face-canvas-p1", "face-canvas-p2"].forEach((id, i) => {
         const c    = document.getElementById(id);
@@ -160,6 +161,7 @@ function startWatching() {
         if (!d) return;
         renderUI(d);
 
+        // 両者が手を出したらplayer1が判定
         const p1hand = d.player1 && d.player1.hand;
         const p2hand = d.player2 && d.player2.hand;
         if (
@@ -172,6 +174,17 @@ function startWatching() {
         ) {
             resolveRound(d);
         }
+
+        // RETRY両者同意チェック（player1が処理）
+        if (
+            myRole === "player1"  &&
+            gameOver              &&
+            d.retryRequest        &&
+            d.retryRequest.player1 === true &&
+            d.retryRequest.player2 === true
+        ) {
+            doRetry(d);
+        }
     });
 
     window.addEventListener("beforeunload", () => {
@@ -183,21 +196,21 @@ function startWatching() {
 // 手を出す
 // ============================================================
 function submitHand(hand) {
-    if (!roomRef || !myRole) return;
+    if (!roomRef || !myRole || gameOver) return;
     roomRef.once("value").then((snap) => {
         const d = snap.val();
         if (!d) return;
-        if (d.roundStatus !== "waiting")          return;
+        if (d.roundStatus !== "waiting")        return;
         const myHand = d[myRole] && d[myRole].hand;
-        if (myHand && myHand !== "")              return;
-        if (!d.player2 || !d.player2.connected)   return;
+        if (myHand && myHand !== "")            return;
+        if (!d.player2 || !d.player2.connected) return;
         log("手を出す:", hand);
         roomRef.child(myRole + "/hand").set(hand);
     });
 }
 
 // ============================================================
-// 勝敗処理（player1のみ実行）
+// 勝敗処理（player1のみ）
 // ============================================================
 function resolveRound(d) {
     if (resolving) return;
@@ -213,7 +226,6 @@ function resolveRound(d) {
     let p2hp = d.player2.hp;
     let text = "";
 
-    // rock > scissors, scissors > paper, paper > rock
     if      (r === "p1win") { p2hp = Math.max(0, p2hp - 1); text = "YOU WIN !"; }
     else if (r === "p2win") { p1hp = Math.max(0, p1hp - 1); text = "ENEMY WIN !"; }
     else                    { text = "DRAW"; }
@@ -230,12 +242,19 @@ function resolveRound(d) {
         roundStatus: "result", resultText: text
     }).then(() => {
         if (over) {
+            // ゲームオーバー → RETRYフラグをリセットして待機
             setTimeout(() => {
-                if (roomRef) roomRef.remove().then(() => { log("ルーム削除"); roomRef = null; });
-            }, 3000);
-            resolving = false;
+                if (!roomRef) { resolving = false; return; }
+                roomRef.update({
+                    "player1/hand": "", "player2/hand": "",
+                    roundStatus: "gameover",
+                    "retryRequest/player1": false,
+                    "retryRequest/player2": false
+                }).then(() => { resolving = false; });
+            }, 2000);
             return;
         }
+        // 次ラウンドへ
         setTimeout(() => {
             if (!roomRef) { resolving = false; return; }
             roomRef.update({
@@ -246,7 +265,6 @@ function resolveRound(d) {
     });
 }
 
-// rock>scissors, scissors>paper, paper>rock
 function judge(h1, h2) {
     if (h1 === h2) return "draw";
     if (
@@ -258,13 +276,91 @@ function judge(h1, h2) {
 }
 
 // ============================================================
+// RETRY ボタン
+// ============================================================
+function onClickRetry() {
+    if (!roomRef || !myRole) return;
+    document.getElementById("btn-retry").disabled = true;
+    roomRef.child("retryRequest/" + myRole).set(true);
+    log("RETRY要求:", myRole);
+}
+
+// 両者同意したらリセット（player1のみ実行）
+function doRetry(d) {
+    log("両者RETRY同意 → リセット");
+    const p1c = d.player1 ? d.player1.charId : randCharId(null);
+    const p2c = d.player2 ? d.player2.charId : randCharId(p1c);
+    roomRef.update({
+        "player1/hp": 3, "player1/hand": "", "player1/connected": true,
+        "player2/hp": 3, "player2/hand": "", "player2/connected": true,
+        "player1/charId": p1c, "player2/charId": p2c,
+        roundStatus: "waiting",
+        resultText: "",
+        "retryRequest/player1": false,
+        "retryRequest/player2": false
+    });
+}
+
+// ============================================================
+// チャット開始
+// ============================================================
+function startChat() {
+    const roomId = document.getElementById("display-room-id").textContent;
+    chatRef = db.ref("chats/" + roomId);
+
+    chatRef.on("child_added", (snap) => {
+        const msg = snap.val();
+        if (!msg) return;
+        // 初回ロード時は既存メッセージをスキップ（任意：表示したい場合は削除）
+        appendChatMessage(msg);
+    });
+}
+
+function sendChat() {
+    const input = document.getElementById("chat-input");
+    const text  = input.value.trim();
+    if (!text || !chatRef) return;
+    input.value = "";
+    chatRef.push({ role: myRole, type: "text", body: text, ts: Date.now() });
+}
+
+function sendEmoji(emoId) {
+    if (!chatRef) return;
+    chatRef.push({ role: myRole, type: "emoji", body: emoId, ts: Date.now() });
+}
+
+function appendChatMessage(msg) {
+    const log_el = document.getElementById("chat-log");
+    const isMe   = msg.role === myRole;
+    const div    = document.createElement("div");
+    div.className = "chat-msg " + (isMe ? "chat-me" : "chat-enemy");
+
+    if (msg.type === "emoji") {
+        const img    = document.createElement("img");
+        img.src      = msg.body + ".png";
+        img.className = "chat-emoji-img";
+        div.appendChild(img);
+    } else {
+        div.textContent = msg.body;
+    }
+
+    log_el.appendChild(div);
+    log_el.scrollTop = log_el.scrollHeight;
+}
+
+// ============================================================
 // UI描画
 // ============================================================
 function renderUI(d) {
     const p1   = d.player1;
     const p2   = d.player2;
     const p2on = !!(p2 && p2.connected);
+    const status = d.roundStatus || "waiting";
 
+    // ゲームオーバー判定
+    gameOver = (status === "gameover");
+
+    // HP
     renderHearts("p1-hp-row", p1 ? p1.hp : 0);
     if (p2on) {
         renderHearts("p2-hp-row", p2.hp);
@@ -273,9 +369,36 @@ function renderUI(d) {
             '<span class="hp-waiting">WAITING...</span>';
     }
 
+    // 顔
     drawFace("face-canvas-p1", p1);
     drawFace("face-canvas-p2", p2on ? p2 : null);
+
+    // バトルフィールド
     renderBattle(d);
+
+    // RETRYボタン表示制御
+    const retryWrap = document.getElementById("retry-wrap");
+    const btnRetry  = document.getElementById("btn-retry");
+    if (gameOver && p2on) {
+        retryWrap.style.display = "flex";
+        // 自分がすでにRETRY押していたらdisable
+        const myRetry = d.retryRequest && d.retryRequest[myRole];
+        btnRetry.disabled = !!myRetry;
+
+        // 相手がRETRY待ちか表示
+        const oppRole    = myRole === "player1" ? "player2" : "player1";
+        const oppRetry   = d.retryRequest && d.retryRequest[oppRole];
+        document.getElementById("retry-status").textContent =
+            oppRetry ? "相手もRETRYを待っています..." : "";
+    } else {
+        retryWrap.style.display = "none";
+    }
+
+    // じゃんけんボタン：ゲームオーバー中・結果表示中は無効
+    const handDisabled = gameOver || status === "result" || !p2on;
+    ["btn-rock","btn-paper","btn-scissors"].forEach((id) => {
+        document.getElementById(id).disabled = handDisabled;
+    });
 }
 
 // ============================================================
@@ -294,40 +417,33 @@ function renderHearts(id, hp) {
 }
 
 // ============================================================
-// 顔スプライト描画（確定座標で正確に切り出す）
+// 顔スプライト描画
 // ============================================================
 function drawFace(canvasId, playerData) {
     const cvs = document.getElementById(canvasId);
     if (!cvs) return;
     const ctx = cvs.getContext("2d");
-    const dw = cvs.width;
-    const dh = cvs.height;
+    const dw  = cvs.width;
+    const dh  = cvs.height;
     ctx.clearRect(0, 0, dw, dh);
 
     if (!playerData || playerData.charId == null) {
-        ctx.fillStyle = "#111";
-        ctx.fillRect(0, 0, dw, dh);
+        ctx.fillStyle = "#111"; ctx.fillRect(0, 0, dw, dh);
         return;
     }
 
     const doRender = () => {
         const col = Math.max(0, Math.min(3, playerData.charId));
         const row = spriteRow(playerData.hp);
-        const sx  = SP_COL_X[col];
-        const sw  = SP_COL_W[col];
-        const sy  = SP_ROW_Y[row];
-        const sh  = SP_ROW_H[row];
-        ctx.drawImage(spriteImg, sx, sy, sw, sh, 0, 0, dw, dh);
+        ctx.drawImage(spriteImg,
+            SP_COL_X[col], SP_ROW_Y[row], SP_COL_W[col], SP_ROW_H[row],
+            0, 0, dw, dh);
     };
 
-    if (spriteImg.complete && spriteImg.naturalWidth > 0) {
-        doRender();
-    } else {
-        spriteImg.onload = doRender;
-    }
+    if (spriteImg.complete && spriteImg.naturalWidth > 0) { doRender(); }
+    else { spriteImg.onload = doRender; }
 }
 
-// HP→スプライト行変換
 function spriteRow(hp) {
     if (hp >= 3) return 0;
     if (hp === 2) return 1;
@@ -353,7 +469,6 @@ function renderBattle(d) {
 
     let html = '<div class="hand-row">';
 
-    // 自分の手
     html += '<div class="hand-cell"><span>YOU</span>';
     html += myHand
         ? '<img class="hand-img" src="' + handSrc(myHand) + '">'
@@ -362,9 +477,10 @@ function renderBattle(d) {
 
     html += '<div class="vs-label">VS</div>';
 
-    // 相手の手（結果時のみ公開）
     html += '<div class="hand-cell"><span>ENEMY</span>';
     if (status === "result" && oppHand) {
+        html += '<img class="hand-img" src="' + handSrc(oppHand) + '">';
+    } else if (status === "gameover" && oppHand) {
         html += '<img class="hand-img" src="' + handSrc(oppHand) + '">';
     } else if (oppHand) {
         html += '<div class="hand-placeholder">...</div>';
@@ -373,7 +489,7 @@ function renderBattle(d) {
     }
     html += '</div></div>';
 
-    if (status === "result") {
+    if (status === "result" || status === "gameover") {
         html += '<div class="result-text">' + (d.resultText || "") + '</div>';
     }
 
