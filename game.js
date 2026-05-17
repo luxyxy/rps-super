@@ -386,25 +386,28 @@ function appendChatMessage(msg) {
 // UI描画
 // ============================================================
 function renderUI(d) {
-    const p1    = d.player1;
-    const p2    = d.player2;
-    const p2on  = !!(p2 && p2.connected);
-    const status = d.roundStatus || "waiting";
+    const oppRole = myRole === "player1" ? "player2" : "player1";
+
+    // 自分のデータ / 相手のデータ を myRole から正しく取得
+    const myData  = d[myRole]  || null;
+    const oppData = d[oppRole] || null;
+    const oppOn   = !!(oppData && oppData.connected);
+    const status  = d.roundStatus || "waiting";
 
     gameOver = (status === "gameover");
 
-    // HP
-    renderHearts("p1-hp-row", p1 ? p1.hp : 0);
-    if (p2on) {
-        renderHearts("p2-hp-row", p2.hp);
+    // HP（左=YOU、右=ENEMY）
+    renderHearts("p1-hp-row", myData  ? myData.hp  : 0);
+    if (oppOn) {
+        renderHearts("p2-hp-row", oppData.hp);
     } else {
         document.getElementById("p2-hp-row").innerHTML =
             '<span class="hp-waiting">WAITING...</span>';
     }
 
-    // 顔
-    drawFace("face-canvas-p1", p1);
-    drawFace("face-canvas-p2", p2on ? p2 : null);
+    // 顔（左=自分、右=相手）
+    drawFace("face-canvas-p1", myData);
+    drawFace("face-canvas-p2", oppOn ? oppData : null);
 
     // バトルフィールド
     renderBattle(d);
@@ -412,11 +415,10 @@ function renderUI(d) {
     // RETRYボタン
     const retryWrap = document.getElementById("retry-wrap");
     const btnRetry  = document.getElementById("btn-retry");
-    if (gameOver && p2on) {
+    if (gameOver && oppOn) {
         retryWrap.style.display = "flex";
         const myRetry  = d.retryRequest && d.retryRequest[myRole];
         btnRetry.disabled = !!myRetry;
-        const oppRole  = myRole === "player1" ? "player2" : "player1";
         const oppRetry = d.retryRequest && d.retryRequest[oppRole];
         document.getElementById("retry-status").textContent =
             oppRetry ? "相手もRETRYを待っています..." : "";
@@ -425,7 +427,7 @@ function renderUI(d) {
     }
 
     // じゃんけんボタン
-    const handDisabled = gameOver || status === "result" || !p2on;
+    const handDisabled = gameOver || status === "result" || !oppOn;
     ["btn-rock","btn-paper","btn-scissors"].forEach((id) => {
         document.getElementById(id).disabled = handDisabled;
     });
@@ -483,21 +485,23 @@ function spriteRow(hp) {
 // バトルフィールド
 // ============================================================
 function renderBattle(d) {
-    const el     = document.getElementById("battle-text");
-    const p2on   = !!(d.player2 && d.player2.connected);
-    const status = d.roundStatus || "waiting";
+    const el      = document.getElementById("battle-text");
+    const oppRole = myRole === "player1" ? "player2" : "player1";
+    const oppData = d[oppRole] || null;
+    const oppOn   = !!(oppData && oppData.connected);
+    const status  = d.roundStatus || "waiting";
 
-    if (!p2on) {
+    if (!oppOn) {
         el.innerHTML = '<span style="color:#00ffff;">相手の参加を待っています...</span>';
         return;
     }
 
     const myHand  = d[myRole]  ? d[myRole].hand  : "";
-    const oppRole = myRole === "player1" ? "player2" : "player1";
-    const oppHand = d[oppRole] ? d[oppRole].hand  : "";
+    const oppHand = oppData    ? oppData.hand      : "";
 
     let html = '<div class="hand-row">';
 
+    // 左：自分（YOU）
     html += '<div class="hand-cell"><span>YOU</span>';
     html += myHand
         ? '<img class="hand-img" src="' + handSrc(myHand) + '">'
@@ -506,6 +510,7 @@ function renderBattle(d) {
 
     html += '<div class="vs-label">VS</div>';
 
+    // 右：相手（ENEMY）- 結果発表時のみ公開
     html += '<div class="hand-cell"><span>ENEMY</span>';
     const showOpp = (status === "result" || status === "gameover") && oppHand;
     if (showOpp) {
@@ -517,8 +522,19 @@ function renderBattle(d) {
     }
     html += '</div></div>';
 
+    // 結果テキスト（自分視点で正しい文言を組み立てる）
     if (status === "result" || status === "gameover") {
-        html += '<div class="result-text">' + (d.resultText || "") + '</div>';
+        const raw = d.resultText || "";
+        // player1固定で書かれた文言を自分視点に変換
+        let text = raw;
+        if (myRole === "player2") {
+            // player2から見ると YOU/ENEMY が逆になる
+            if      (raw === "YOU WIN !")                 text = "ENEMY WIN !";
+            else if (raw === "ENEMY WIN !")               text = "YOU WIN !";
+            else if (raw === "YOU LOSE  --  GAME OVER")   text = "ENEMY LOSE  --  GAME OVER";
+            else if (raw === "ENEMY LOSE  --  GAME OVER") text = "YOU LOSE  --  GAME OVER";
+        }
+        html += '<div class="result-text">' + text + '</div>';
     }
 
     el.innerHTML = html;
