@@ -12,8 +12,12 @@ const firebaseConfig = {
 };
 
 firebase.initializeApp(firebaseConfig);
-const db   = firebase.database();
-const auth = firebase.auth();
+const db = firebase.database();
+
+// Anonymous認証（Realtime DBへのアクセスに必要な場合）
+firebase.auth().signInAnonymously().catch((err) => {
+    console.error("Auth error:", err);
+});
 
 // ============================================================
 // スプライト座標
