@@ -12,12 +12,8 @@ const firebaseConfig = {
 };
 
 firebase.initializeApp(firebaseConfig);
-const db = firebase.database();
-
-// Anonymous認証（Realtime DBへのアクセスに必要な場合）
-firebase.auth().signInAnonymously().catch((err) => {
-    console.error("Auth error:", err);
-});
+const db   = firebase.database();
+const auth = firebase.auth();
 
 // ============================================================
 // スプライト座標
@@ -235,10 +231,15 @@ function startWatching() {
 }
 
 function cleanupRoom() {
-    const roomId = roomRef ? document.getElementById("display-room-id").textContent : null;
-    if (roomRef)  { roomRef.remove();  roomRef = null; }
-    if (chatRef)  { chatRef.remove();  chatRef = null; }
-    if (roomId)   { db.ref("seats/" + roomId).remove(); }
+    const roomId = document.getElementById("display-room-id").textContent;
+    if (!roomId) return;
+    // rooms / chats / seats を全削除
+    db.ref("rooms/" + roomId).remove();
+    db.ref("chats/" + roomId).remove();
+    db.ref("seats/" + roomId).remove();
+    roomRef = null;
+    chatRef = null;
+    log("ルームデータ全削除:", roomId);
 }
 
 // ============================================================
@@ -286,7 +287,7 @@ function resolveRound(d) {
     log("判定:", h1, "vs", h2, "->", r, "|", text);
 
     if (over) {
-        // ゲームオーバー：結果を書いてから手をリセット・gameoverステータスへ
+        // ゲームオーバー：結果表示 → gameoverステータスへ
         roomRef.update({
             "player1/hp": p1hp, "player2/hp": p2hp,
             "player1/hand": h1, "player2/hand": h2,
@@ -294,6 +295,9 @@ function resolveRound(d) {
         }).then(() => {
             setTimeout(() => {
                 if (!roomRef) { resolving = false; return; }
+                // chatだけ先に削除（チャットログをリセット）
+                const roomId = document.getElementById("display-room-id").textContent;
+                db.ref("chats/" + roomId).remove();
                 roomRef.update({
                     "player1/hand": "", "player2/hand": "",
                     roundStatus: "gameover",
@@ -343,6 +347,15 @@ function doRetry(d) {
     log("両者RETRY同意 → リセット");
     const p1c = d.player1 ? d.player1.charId : randCharId(null);
     const p2c = d.player2 ? d.player2.charId : randCharId(p1c);
+    const roomId = document.getElementById("display-room-id").textContent;
+
+    // チャットログをリセット
+    db.ref("chats/" + roomId).remove().then(() => {
+        // チャット監視を再開
+        startChat(roomId);
+    });
+
+    // ルームデータをリセット
     roomRef.update({
         "player1/hp": 3, "player1/hand": "",
         "player2/hp": 3, "player2/hand": "",
