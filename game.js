@@ -57,7 +57,7 @@ document.getElementById("chat-input") .onkeydown  = (e) => { if (e.key === "Ente
 });
 
 // ============================================================
-// ENTER ボタン処理
+// ENTER ボタン処理（transactionで排他制御 → レースコンディション解消）
 // ============================================================
 function onClickEnter() {
     const roomId = document.getElementById("input-room-id").value.trim();
@@ -68,62 +68,79 @@ function onClickEnter() {
 
     const ref = db.ref("rooms/" + roomId);
 
-    ref.once("value")
-        .then((snap) => {
-            const data = snap.val();
-            log("ルームデータ:", data);
+    // transaction: 読み取りと書き込みをアトミックに実行
+    // → 2人が同時にENTERしても必ずP1/P2に振り分けられる
+    ref.transaction((current) => {
+        if (!current) {
+            // 新規ルーム → player1 として作成
+            myRole  = "player1";
+            roomRef = ref;
+            return {
+                player1:      { hp: 3, hand: "", connected: true,  charId: randCharId(null) },
+                player2:      { hp: 3, hand: "", connected: false, charId: null },
+                roundStatus:  "waiting",
+                resultText:   "",
+                retryRequest: { player1: false, player2: false }
+            };
+        }
 
-            if (!data) {
-                myRole = "player1"; roomRef = ref;
-                return ref.set({
-                    player1:     { hp: 3, hand: "", connected: true,  charId: randCharId(null) },
-                    player2:     { hp: 3, hand: "", connected: false, charId: null },
-                    roundStatus: "waiting",
-                    resultText:  "",
-                    retryRequest: { player1: false, player2: false }
-                });
-            }
+        const p1on = !!(current.player1 && current.player1.connected);
+        const p2on = !!(current.player2 && current.player2.connected);
 
-            const p1on = !!(data.player1 && data.player1.connected);
-            const p2on = !!(data.player2 && data.player2.connected);
+        if (!p1on && !p2on) {
+            // 残骸 → リセットして player1
+            myRole  = "player1";
+            roomRef = ref;
+            return {
+                player1:      { hp: 3, hand: "", connected: true,  charId: randCharId(null) },
+                player2:      { hp: 3, hand: "", connected: false, charId: null },
+                roundStatus:  "waiting",
+                resultText:   "",
+                retryRequest: { player1: false, player2: false }
+            };
+        }
 
-            if (!p1on && !p2on) {
-                myRole = "player1"; roomRef = ref;
-                return ref.set({
-                    player1:     { hp: 3, hand: "", connected: true,  charId: randCharId(null) },
-                    player2:     { hp: 3, hand: "", connected: false, charId: null },
-                    roundStatus: "waiting",
-                    resultText:  "",
-                    retryRequest: { player1: false, player2: false }
-                });
-            }
-            if (p1on && !p2on) {
-                myRole = "player2"; roomRef = ref;
-                return ref.child("player2").update({
-                    hp: 3, hand: "", connected: true, charId: randCharId(data.player1 ? data.player1.charId : null)
-                });
-            }
-            if (!p1on && p2on) {
-                myRole = "player1"; roomRef = ref;
-                return ref.child("player1").update({
-                    hp: 3, hand: "", connected: true, charId: randCharId(data.player2 ? data.player2.charId : null)
-                });
-            }
+        if (p1on && !p2on) {
+            // player1 待機中 → player2 として参加
+            myRole  = "player2";
+            roomRef = ref;
+            const p1c = current.player1 ? current.player1.charId : null;
+            current.player2 = { hp: 3, hand: "", connected: true, charId: randCharId(p1c) };
+            return current;
+        }
 
-            throw new Error("FULL");
-        })
-        .then(() => {
-            log("書き込み完了 / role =", myRole);
-            showGameScreen(document.getElementById("input-room-id").value.trim());
-            startWatching();
-            startChat();
-        })
-        .catch((err) => {
-            log("エラー:", err.message);
-            alert(err.message === "FULL" ? "このルームは満員です。" : "エラー: " + err.message);
+        if (!p1on && p2on) {
+            // player2 だけいる → player1 として参加
+            myRole  = "player1";
+            roomRef = ref;
+            const p2c = current.player2 ? current.player2.charId : null;
+            current.player1 = { hp: 3, hand: "", connected: true, charId: randCharId(p2c) };
+            return current;
+        }
+
+        // 満員 → undefined を返してトランザクションをアボート
+        myRole  = null;
+        roomRef = null;
+        return undefined;
+    })
+    .then((result) => {
+        if (!result.committed || !myRole) {
+            alert("このルームは満員です。");
             document.getElementById("btn-join").disabled      = false;
             document.getElementById("input-room-id").disabled = false;
-        });
+            return;
+        }
+        log("入室完了 / role =", myRole);
+        showGameScreen(roomId);
+        startWatching();
+        startChat();
+    })
+    .catch((err) => {
+        log("エラー:", err.message);
+        alert("エラー: " + err.message);
+        document.getElementById("btn-join").disabled      = false;
+        document.getElementById("input-room-id").disabled = false;
+    });
 }
 
 function randCharId(excludeId) {
