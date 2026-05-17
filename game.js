@@ -31,16 +31,12 @@ const imgH2     = new Image(); imgH2.src     = "heart2.png";
 // ============================================================
 // グローバル状態
 // ============================================================
-let myRole    = null;   // "player1" | "player2"
-let myUid     = null;   // このブラウザセッション固有ID
+let myRole    = null;
+let myUid     = null;
 let roomRef   = null;
 let resolving = false;
 let gameOver  = false;
 let chatRef   = null;
-
-// 起動時にこのセッション固有のIDを生成
-myUid = db.ref().push().key;  // Firebase の push key を流用
-log("myUid:", myUid);
 
 // ============================================================
 // ボタン登録
@@ -56,6 +52,10 @@ document.getElementById("chat-input")   .onkeydown = (e) => { if (e.key === "Ent
 ["emo1","emo2","emo3","emo4"].forEach((id) => {
     document.getElementById("btn-" + id).onclick = () => sendEmoji(id);
 });
+
+// セッション固有IDを生成（認証不要）
+myUid = db.ref().push().key;
+log("myUid:", myUid);
 
 // ============================================================
 // ENTER ボタン処理
