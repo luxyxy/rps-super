@@ -32,14 +32,14 @@ const imgH2     = new Image(); imgH2.src     = "heart2.png";
 // ============================================================
 // グローバル状態
 // ============================================================
-let myRole    = null;
-let myUid     = null;
+let myRole        = null;   // "player1" | "player2"  ← DBから確定後にセット
+let mySessionKey  = null;   // このブラウザ固有のキー
 let currentRoomId = null;
-let roomRef   = null;
-let chatRef   = null;
-let resolving = false;
-let gameOver  = false;
-let chatListener = null; // チャットリスナーの参照
+let roomRef       = null;
+let chatRef       = null;
+let resolving     = false;
+let gameOver      = false;
+let chatListener  = null;
 
 function log(...a) { console.log("[RPS]", ...a); }
 
@@ -71,63 +71,77 @@ auth.signInAnonymously().catch((err) => {
 
 auth.onAuthStateChanged((user) => {
     if (user) {
-        myUid = user.uid;
-        log("認証完了 uid:", myUid);
+        // 認証UIDをセッションキーとして使用（ブラウザごとに必ず一意）
+        mySessionKey = user.uid;
+        log("認証完了 key:", mySessionKey);
         document.getElementById("btn-join").disabled = false;
     }
 });
 
 // ============================================================
-// 全データ削除（確実に rooms/chats/seats を消す）
+// 全データ削除
 // ============================================================
 function deleteAllRoomData(roomId) {
     if (!roomId) return Promise.resolve();
-    log("全データ削除:", roomId);
+    log("全削除:", roomId);
     return Promise.all([
-        db.ref("rooms/" + roomId).remove(),
-        db.ref("chats/" + roomId).remove(),
-        db.ref("seats/" + roomId).remove()
+        db.ref("rooms/"  + roomId).remove(),
+        db.ref("chats/"  + roomId).remove()
     ]);
 }
 
 // ============================================================
 // ENTER ボタン処理
+//
+// 方針：
+//   rooms/{roomId}/p1key, p2key にセッションキーを書き込む。
+//   「自分のキーがp1keyに書かれていたら自分はplayer1」と判定。
+//   書き込みはFirebase runTransaction で先着順を保証。
+//   p1key が空 → player1として書き込み
+//   p1key が埋まっていて p2key が空 → player2として書き込み
+//   両方埋まっている → 満員
 // ============================================================
 function onClickEnter() {
     const roomId = document.getElementById("input-room-id").value.trim();
     if (!/^\d{4}$/.test(roomId)) { alert("4桁の数字を入力してください。"); return; }
+    if (!mySessionKey) { alert("認証中です。少し待ってください。"); return; }
 
     document.getElementById("btn-join").disabled      = true;
     document.getElementById("input-room-id").disabled = true;
 
-    const seatsRef = db.ref("seats/" + roomId);
+    const keysRef = db.ref("rooms/" + roomId + "/keys");
 
-    // player1席を transaction で先着確保
-    seatsRef.child("player1uid").transaction((cur) => {
-        if (cur === null || cur === "") return myUid;
-        return undefined; // 埋まっていたらアボート
+    // p1key への先着書き込みを試みる
+    keysRef.child("p1key").transaction((cur) => {
+        // cur が null（未存在）または空文字のときだけ自分のキーを書く
+        if (cur === null || cur === "") return mySessionKey;
+        // すでに自分のキーが入っている（リロード等）→ そのまま継続
+        if (cur === mySessionKey) return mySessionKey;
+        return undefined; // 他人が入っている → アボート
     }).then((res1) => {
         if (res1.committed) {
+            // p1key に書けた → player1確定
             myRole = "player1";
-            log("player1として入室");
-            return setupRoom(roomId, seatsRef);
+            log("player1確定");
+            return initializeRoom(roomId);
         }
-        // player2席を試みる
-        return seatsRef.child("player2uid").transaction((cur) => {
-            if (cur === null || cur === "") return myUid;
+
+        // p1keyに他人がいる → p2keyを試みる
+        return keysRef.child("p2key").transaction((cur) => {
+            if (cur === null || cur === "") return mySessionKey;
+            if (cur === mySessionKey) return mySessionKey;
             return undefined;
         }).then((res2) => {
             if (res2.committed) {
                 myRole = "player2";
-                log("player2として入室");
-                return joinRoom(roomId);
+                log("player2確定");
+                return joinAsPlayer2(roomId);
             }
             throw new Error("FULL");
         });
     }).then(() => {
         currentRoomId = roomId;
         roomRef = db.ref("rooms/" + roomId);
-        chatRef = db.ref("chats/" + roomId);
         showGameScreen(roomId);
         startWatching();
         startChat(roomId);
@@ -139,29 +153,27 @@ function onClickEnter() {
     });
 }
 
-// player1として部屋を新規作成（前の残骸も削除してから）
-function setupRoom(roomId, seatsRef) {
-    return deleteAllRoomData(roomId).then(() => {
-        return db.ref("rooms/" + roomId).set({
-            player1:      { hp: 3, hand: "", connected: true,  charId: randCharId(null), uid: myUid },
-            player2:      { hp: 3, hand: "", connected: false, charId: null, uid: "" },
-            roundStatus:  "waiting",
-            resultText:   "",
-            retryRequest: { player1: false, player2: false }
-        });
-    }).then(() => {
-        return seatsRef.child("player2uid").set("");
+// player1として部屋を初期化
+// keys ノードは残したまま、ゲームデータだけ書き込む
+function initializeRoom(roomId) {
+    const charId = randCharId(null);
+    return db.ref("rooms/" + roomId).update({
+        player1: { hp: 3, hand: "", connected: true,  charId: charId },
+        player2: { hp: 3, hand: "", connected: false, charId: null   },
+        roundStatus:  "waiting",
+        resultText:   "",
+        retryRequest: { player1: false, player2: false }
+        // keys は上書きしない（transactionで書いたp1keyを保持）
     });
 }
 
-// player2として既存の部屋に参加
-function joinRoom(roomId) {
-    return db.ref("rooms/" + roomId).once("value").then((snap) => {
-        const d = snap.val();
-        const p1charId = d && d.player1 ? d.player1.charId : null;
+// player2として参加
+function joinAsPlayer2(roomId) {
+    return db.ref("rooms/" + roomId + "/player1").once("value").then((snap) => {
+        const p1data   = snap.val();
+        const p1charId = p1data ? p1data.charId : null;
         return db.ref("rooms/" + roomId + "/player2").update({
-            hp: 3, hand: "", connected: true,
-            charId: randCharId(p1charId), uid: myUid
+            hp: 3, hand: "", connected: true, charId: randCharId(p1charId)
         });
     });
 }
@@ -189,33 +201,33 @@ function showGameScreen(roomId) {
 }
 
 // ============================================================
-// タイトル画面へ戻る
+// タイトルへ戻る
 // ============================================================
 function backToTitle() {
-    // Firebaseリスナー解除
-    if (roomRef) { roomRef.off(); roomRef = null; }
-    if (chatRef && chatListener) { chatRef.off("child_added", chatListener); chatListener = null; chatRef = null; }
+    if (roomRef)  { roomRef.off(); roomRef = null; }
+    if (chatRef && chatListener) {
+        chatRef.off("child_added", chatListener);
+        chatListener = null;
+        chatRef = null;
+    }
 
-    // 状態リセット
     myRole        = null;
     currentRoomId = null;
     resolving     = false;
     gameOver      = false;
 
-    // チャットログ・画面リセット
-    document.getElementById("chat-log").innerHTML = "";
+    document.getElementById("chat-log").innerHTML     = "";
     document.getElementById("input-room-id").value    = "";
     document.getElementById("input-room-id").disabled = false;
     document.getElementById("btn-join").disabled      = false;
     document.getElementById("retry-wrap").style.display = "none";
+    document.getElementById("retry-status").textContent = "";
 
     document.getElementById("game-screen").style.display  = "none";
     document.getElementById("setup-screen").style.display = "flex";
 }
 
-// ============================================================
-// ENDボタン：全削除してタイトルへ
-// ============================================================
+// ENDボタン
 function onClickEnd() {
     const roomId = currentRoomId;
     backToTitle();
@@ -226,11 +238,22 @@ function onClickEnd() {
 // Firebase リアルタイム監視
 // ============================================================
 function startWatching() {
-    log("監視開始 / myRole=", myRole);
+    log("監視開始 role=", myRole, "key=", mySessionKey);
 
     roomRef.on("value", (snap) => {
         const d = snap.val();
         if (!d) return;
+
+        // ★ keys を見て自分のロールを毎回確認（ズレを防ぐ）
+        const keys = d.keys || {};
+        if (keys.p1key === mySessionKey) {
+            myRole = "player1";
+        } else if (keys.p2key === mySessionKey) {
+            myRole = "player2";
+        }
+        // myRole が確定してから描画
+        if (!myRole) return;
+
         renderUI(d);
 
         const p1hand = d.player1 && d.player1.hand;
@@ -241,7 +264,7 @@ function startWatching() {
             d.roundStatus === "waiting" &&
             p1hand && p1hand !== ""     &&
             p2hand && p2hand !== ""     &&
-            d.player2.connected
+            d.player2 && d.player2.connected
         ) {
             resolveRound(d);
         }
@@ -257,7 +280,6 @@ function startWatching() {
         }
     });
 
-    // ページ離脱時に全削除
     window.addEventListener("beforeunload", () => {
         if (currentRoomId) deleteAllRoomData(currentRoomId);
     });
@@ -271,10 +293,11 @@ function submitHand(hand) {
     roomRef.once("value").then((snap) => {
         const d = snap.val();
         if (!d) return;
-        if (d.roundStatus !== "waiting")        return;
+        if (d.roundStatus !== "waiting")              return;
         const myHand = d[myRole] && d[myRole].hand;
-        if (myHand && myHand !== "")            return;
-        if (!d.player2 || !d.player2.connected) return;
+        if (myHand && myHand !== "")                  return;
+        if (!d.player2 || !d.player2.connected)       return;
+        log("手を出す:", hand);
         roomRef.child(myRole + "/hand").set(hand);
     });
 }
@@ -286,12 +309,12 @@ function resolveRound(d) {
     if (resolving) return;
     resolving = true;
 
-    const h1 = d.player1.hand;
-    const h2 = d.player2.hand;
+    const h1    = d.player1.hand;
+    const h2    = d.player2.hand;
     const valid = ["rock", "paper", "scissors"];
     if (!valid.includes(h1) || !valid.includes(h2)) { resolving = false; return; }
 
-    const r = judge(h1, h2);
+    const r  = judge(h1, h2);
     let p1hp = d.player1.hp;
     let p2hp = d.player2.hp;
     let text = "";
@@ -307,8 +330,8 @@ function resolveRound(d) {
     log("判定:", h1, "vs", h2, "->", r, "|", text);
 
     roomRef.update({
-        "player1/hp": p1hp, "player2/hp": p2hp,
-        "player1/hand": h1, "player2/hand": h2,
+        "player1/hp":   p1hp, "player2/hp":   p2hp,
+        "player1/hand": h1,   "player2/hand": h2,
         roundStatus: "result", resultText: text
     }).then(() => {
         if (over) {
@@ -355,11 +378,10 @@ function onClickRetry() {
 function doRetry(d) {
     log("両者RETRY同意 → リセット");
     if (!currentRoomId) return;
-
     const p1c = d.player1 ? d.player1.charId : randCharId(null);
     const p2c = d.player2 ? d.player2.charId : randCharId(p1c);
 
-    // チャットを削除してリスナーを再登録
+    // チャットリセット
     db.ref("chats/" + currentRoomId).remove().then(() => {
         document.getElementById("chat-log").innerHTML = "";
         startChat(currentRoomId);
@@ -381,9 +403,7 @@ function doRetry(d) {
 function startChat(roomId) {
     const ref = db.ref("chats/" + roomId);
     chatRef = ref;
-
-    // 既存リスナーを解除してから再登録
-    if (chatListener) { ref.off("child_added", chatListener); }
+    if (chatListener) { ref.off("child_added", chatListener); chatListener = null; }
 
     let initialized = false;
     ref.once("value", () => { initialized = true; });
@@ -413,16 +433,14 @@ function appendChatMessage(msg) {
     const isMe  = (msg.role === myRole);
     const div   = document.createElement("div");
     div.className = "chat-msg " + (isMe ? "chat-me" : "chat-enemy");
-
     if (msg.type === "emoji") {
-        const img     = document.createElement("img");
+        const img = document.createElement("img");
         img.src       = msg.body + ".png";
         img.className = "chat-emoji-img";
         div.appendChild(img);
     } else {
         div.textContent = msg.body;
     }
-
     logEl.appendChild(div);
     logEl.scrollTop = logEl.scrollHeight;
 }
@@ -431,6 +449,7 @@ function appendChatMessage(msg) {
 // UI描画
 // ============================================================
 function renderUI(d) {
+    if (!myRole) return;
     const oppRole = myRole === "player1" ? "player2" : "player1";
     const myData  = d[myRole]  || null;
     const oppData = d[oppRole] || null;
@@ -439,7 +458,8 @@ function renderUI(d) {
 
     gameOver = (status === "gameover");
 
-    renderHearts("p1-hp-row", myData  ? myData.hp  : 0);
+    // HP（左=自分=YOU、右=相手=ENEMY）
+    renderHearts("p1-hp-row", myData ? myData.hp : 0);
     if (oppOn) {
         renderHearts("p2-hp-row", oppData.hp);
     } else {
@@ -447,21 +467,21 @@ function renderUI(d) {
             '<span class="hp-waiting">WAITING...</span>';
     }
 
+    // 顔（左=自分、右=相手）
     drawFace("face-canvas-p1", myData);
     drawFace("face-canvas-p2", oppOn ? oppData : null);
+
     renderBattle(d);
 
-    // RETRYボタン・ENDボタン
+    // RETRYエリア
     const retryWrap = document.getElementById("retry-wrap");
-    if (gameOver && oppOn) {
+    if (gameOver) {
         retryWrap.style.display = "flex";
         const myRetry  = d.retryRequest && d.retryRequest[myRole];
         document.getElementById("btn-retry").disabled = !!myRetry;
         const oppRetry = d.retryRequest && d.retryRequest[oppRole];
         document.getElementById("retry-status").textContent =
-            oppRetry ? "相手もRETRYを待っています..." : "";
-    } else if (gameOver) {
-        retryWrap.style.display = "flex"; // 相手が切断してもENDは出す
+            (oppOn && oppRetry) ? "相手もRETRYを待っています..." : "";
     } else {
         retryWrap.style.display = "none";
     }
@@ -497,12 +517,10 @@ function drawFace(canvasId, playerData) {
     const dw  = cvs.width;
     const dh  = cvs.height;
     ctx.clearRect(0, 0, dw, dh);
-
     if (!playerData || playerData.charId == null) {
         ctx.fillStyle = "#111"; ctx.fillRect(0, 0, dw, dh);
         return;
     }
-
     const doRender = () => {
         const col = Math.max(0, Math.min(3, playerData.charId));
         const row = spriteRow(playerData.hp);
@@ -525,6 +543,7 @@ function spriteRow(hp) {
 // ============================================================
 function renderBattle(d) {
     const el      = document.getElementById("battle-text");
+    if (!myRole) return;
     const oppRole = myRole === "player1" ? "player2" : "player1";
     const oppData = d[oppRole] || null;
     const oppOn   = !!(oppData && oppData.connected);
@@ -537,19 +556,15 @@ function renderBattle(d) {
 
     const myHand  = d[myRole] ? d[myRole].hand : "";
     const oppHand = oppData   ? oppData.hand    : "";
+    const reveal  = status === "result" || status === "gameover";
 
     let html = '<div class="hand-row">';
-
     html += '<div class="hand-cell"><span>YOU</span>';
     html += myHand
         ? '<img class="hand-img" src="' + handSrc(myHand) + '">'
         : '<div class="hand-placeholder">?</div>';
-    html += '</div>';
-
-    html += '<div class="vs-label">VS</div>';
-
+    html += '</div><div class="vs-label">VS</div>';
     html += '<div class="hand-cell"><span>ENEMY</span>';
-    const reveal = status === "result" || status === "gameover";
     if (reveal && oppHand) {
         html += '<img class="hand-img" src="' + handSrc(oppHand) + '">';
     } else if (oppHand) {
@@ -561,7 +576,8 @@ function renderBattle(d) {
 
     if (reveal) {
         const raw = d.resultText || "";
-        let text = raw;
+        let text  = raw;
+        // player2視点では WIN/LOSE が逆になる
         if (myRole === "player2") {
             if      (raw === "YOU WIN !")                 text = "ENEMY WIN !";
             else if (raw === "ENEMY WIN !")               text = "YOU WIN !";
@@ -570,7 +586,6 @@ function renderBattle(d) {
         }
         html += '<div class="result-text">' + text + '</div>';
     }
-
     el.innerHTML = html;
 }
 
